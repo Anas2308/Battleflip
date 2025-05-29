@@ -134,3 +134,24 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# Rust specific
+target/
+Cargo.lock
+*.pdb
+
+# Solana/Anchor specific
+.anchor/
+test-ledger/
+.DS_Store
+
+# IDL files (generated)
+target/idl/
+target/types/
+
+# Solana CLI
+.config/
+
+# IDE
+.vscode/
+.idea/
