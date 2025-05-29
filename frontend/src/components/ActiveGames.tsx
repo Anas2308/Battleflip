@@ -48,8 +48,7 @@ export const ActiveGames: FC<Props> = ({ games, onJoinGame, onDeleteGame, loadin
 
       {games.length === 0 ? (
         <div className="text-center py-8">
-          <div className="text-6xl mb-4">🎲</div>
-          <p className="text-gray-400 mb-2">No active games</p>
+          <p className="text-lg text-gray-400 mb-2">No active games</p>
           <p className="text-sm text-gray-500">Be the first to create a game!</p>
         </div>
       ) : (
@@ -172,9 +171,9 @@ export const ActiveGames: FC<Props> = ({ games, onJoinGame, onDeleteGame, loadin
         </div>
       )}
 
-      {/* Info Box */}
+      {/* Info Box - CLEANED */}
       <div className="mt-6 p-4 bg-blue-900/20 rounded-lg border border-blue-500/30">
-        <h4 className="font-medium text-blue-300 mb-2">ℹ️ Game Rules:</h4>
+        <h4 className="font-medium text-blue-300 mb-2">Game Rules:</h4>
         <ul className="text-sm text-gray-300 space-y-1">
           <li>• Click "Join & Flip" to enter any game</li>
           <li>• You'll choose heads or tails after joining</li>

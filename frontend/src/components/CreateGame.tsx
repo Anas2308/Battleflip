@@ -77,7 +77,7 @@ export const CreateGame: FC<Props> = ({ onCreateGame, minBetSol, solEurRate, loa
           </div>
         </div>
 
-        {/* Bet Amount */}
+        {/* Bet Amount - FIXED: More precise step */}
         <div>
           <label className="block text-sm font-medium mb-2">
             Bet Amount (SOL)
@@ -87,7 +87,7 @@ export const CreateGame: FC<Props> = ({ onCreateGame, minBetSol, solEurRate, loa
             value={betAmount}
             onChange={(e) => setBetAmount(e.target.value)}
             placeholder={`Min: ${formatSol(minBetSol)} SOL`}
-            step="0.0001"
+            step="0.000001"
             min={minBetSol}
             className={`input-field w-full ${
               betAmount && !isValidBetAmount ? 'border-red-500' : ''
@@ -96,7 +96,7 @@ export const CreateGame: FC<Props> = ({ onCreateGame, minBetSol, solEurRate, loa
           />
           <div className="flex justify-between text-xs mt-1">
             <span className={betAmount && !isValidBetAmount ? 'text-red-400' : 'text-gray-400'}>
-              Minimum: {formatSol(minBetSol)} SOL (0.50€)
+              Minimum: {formatSol(minBetSol)} SOL (≈ 0.50€)
             </span>
             {betAmountNum > 0 && (
               <span className="text-gray-400">
@@ -108,7 +108,7 @@ export const CreateGame: FC<Props> = ({ onCreateGame, minBetSol, solEurRate, loa
 
         {/* Fee Information */}
         <div className="bg-gray-700 rounded-lg p-4 text-sm">
-          <h4 className="font-medium text-yellow-400 mb-2">💡 Fee Structure</h4>
+          <h4 className="font-medium text-yellow-400 mb-2">Fee Structure</h4>
           <ul className="space-y-1 text-gray-300">
             <li>• Winner gets 95% of total pot</li>
             <li>• Platform fee: 5%</li>
@@ -145,7 +145,7 @@ export const CreateGame: FC<Props> = ({ onCreateGame, minBetSol, solEurRate, loa
         <h4 className="font-medium text-purple-300 mb-2">📋 How it works:</h4>
         <ol className="text-sm text-gray-300 space-y-1">
           <li>1. Choose a unique lobby name</li>
-          <li>2. Set your bet amount (min 0.50€)</li>
+          <li>2. Set your bet amount (min 0.003 SOL ≈ 0.50€)</li>
           <li>3. Pay the bet to create lobby</li>
           <li>4. Wait for someone to join</li>
           <li>5. Winner takes 95% of total pot!</li>

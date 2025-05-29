@@ -2,7 +2,7 @@ import { type FC } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import type { FinishedGame } from '../types';
 import { formatSol, formatEur, formatTimeAgo, truncateAddress } from '../utils';
-import { TrophyIcon, FireIcon } from '@heroicons/react/24/solid';
+import { TrophyIcon, FireIcon, ChartBarIcon } from '@heroicons/react/24/solid';
 
 interface Props {
   games: FinishedGame[];
@@ -33,8 +33,7 @@ export const FinishedGames: FC<Props> = ({ games }) => {
 
       {games.length === 0 ? (
         <div className="text-center py-8">
-          <div className="text-6xl mb-4">📊</div>
-          <p className="text-gray-400 mb-2">No recent games</p>
+          <p className="text-lg text-gray-400 mb-2">No recent games</p>
           <p className="text-sm text-gray-500">Finished games will appear here</p>
         </div>
       ) : (
@@ -150,7 +149,7 @@ export const FinishedGames: FC<Props> = ({ games }) => {
                             <span className="ml-2 font-bold text-yellow-400">
                               {game.result.toUpperCase()}
                             </span>
-                            <span className="ml-2 text-2xl">
+                            <span className="ml-2 text-xl">
                               {game.result === 'heads' ? '👑' : '🔥'}
                             </span>
                           </div>
@@ -172,10 +171,10 @@ export const FinishedGames: FC<Props> = ({ games }) => {
         </div>
       )}
 
-      {/* Statistics */}
+      {/* Statistics - CLEANED */}
       {games.length > 0 && (
         <div className="mt-6 pt-6 border-t border-gray-600">
-          <h4 className="font-medium text-gray-300 mb-3">📈 Statistics</h4>
+          <h4 className="font-medium text-gray-300 mb-3">Statistics</h4>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
             <div className="bg-gray-800 rounded-lg p-3 text-center">
               <div className="text-2xl font-bold text-purple-400">

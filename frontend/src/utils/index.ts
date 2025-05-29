@@ -22,10 +22,10 @@ export const eurToSol = (eurAmount: number, rate: number): number => {
   return eurAmount / rate;
 };
 
-// Minimum bet validation (0.50€)
+// FIXED: Minimum bet validation - set to fixed SOL amount
 export const getMinimumBetInSol = async (): Promise<number> => {
-  const rate = await getSolToEurRate();
-  return eurToSol(0.5, rate);
+  // Fixed minimum: 0.003 SOL (approximately 0.50€ when SOL = 170€)
+  return 0.003;
 };
 
 export const validateBetAmount = (solAmount: number, minSolAmount: number): boolean => {

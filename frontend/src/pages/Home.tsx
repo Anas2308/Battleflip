@@ -56,8 +56,8 @@ export const Home: FC = () => {
         <ErrorDisplay error={error} onClose={clearError} />
       )}
 
-      {/* Hero Section */}
-      <div className="text-center py-12">
+      {/* Hero Section - CLEANED */}
+      <div className="text-center py-8">
         <h2 className="text-4xl font-bold mb-4">
           Welcome to <span className="text-purple-400">BattleFlip</span>
         </h2>
@@ -67,28 +67,32 @@ export const Home: FC = () => {
         <div className="flex justify-center items-center gap-4 text-sm text-gray-500">
           <span>1 SOL ≈ {solEurRate.toFixed(0)}€</span>
           <span>•</span>
-          <span>Min bet: {minBetSol.toFixed(4)} SOL (0.50€)</span>
+          <span>Min bet: {minBetSol.toFixed(4)} SOL (≈ 0.50€)</span>
         </div>
       </div>
 
       {/* Game Statistics */}
       <GameStats stats={gameStats} solEurRate={solEurRate} />
 
-      {/* Connection Status */}
+      {/* Connection Status - CLEANED */}
       {!connected ? (
         <div className="bg-gray-800 rounded-lg p-8 text-center">
-          <div className="text-6xl mb-4">🎮</div>
-          <p className="text-lg mb-6">Connect your wallet to start playing!</p>
+          <h3 className="text-2xl font-bold mb-4 text-purple-400">Connect Wallet to Start</h3>
+          <p className="text-lg mb-6 text-gray-300">Connect your wallet to start playing!</p>
           <div className="flex justify-center gap-8">
-            <div className="flex items-center gap-2">
-              <span className="text-3xl">👻</span>
+            <div className="flex items-center gap-3 p-4 bg-gray-700 rounded-lg">
+              <div className="w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center">
+                <span className="text-white font-bold text-sm">P</span>
+              </div>
               <div>
                 <div className="font-bold">Phantom</div>
                 <div className="text-sm text-gray-400">Recommended</div>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-3xl">☀️</span>
+            <div className="flex items-center gap-3 p-4 bg-gray-700 rounded-lg">
+              <div className="w-8 h-8 bg-orange-600 rounded-full flex items-center justify-center">
+                <span className="text-white font-bold text-sm">S</span>
+              </div>
               <div>
                 <div className="font-bold">Solflare</div>
                 <div className="text-sm text-gray-400">Mobile friendly</div>
@@ -126,12 +130,12 @@ export const Home: FC = () => {
             </div>
           )}
 
-          {/* Navigation Tabs */}
+          {/* Navigation Tabs - CLEANED */}
           <div className="flex flex-wrap gap-2">
             {[
-              { key: 'active', label: `Active Games (${activeGames.length})`, icon: '🎮' },
-              { key: 'create', label: 'Create Game', icon: '➕' },
-              { key: 'finished', label: `Recent Games (${finishedGames.length})`, icon: '📊' }
+              { key: 'active', label: `Active Games (${activeGames.length})`, icon: '▶' },
+              { key: 'create', label: 'Create Game', icon: '+' },
+              { key: 'finished', label: `Recent Games (${finishedGames.length})`, icon: '◼' }
             ].map((tab) => (
               <button
                 key={tab.key}
@@ -177,9 +181,9 @@ export const Home: FC = () => {
         </>
       )}
 
-      {/* Platform Information */}
+      {/* Platform Information - CLEANED */}
       <div className="bg-gradient-to-r from-purple-900/30 to-blue-900/30 rounded-xl p-6 border border-purple-500/30">
-        <h3 className="text-xl font-bold mb-4 text-purple-300">🎯 How BattleFlip Works</h3>
+        <h3 className="text-xl font-bold mb-4 text-purple-300">How BattleFlip Works</h3>
         <div className="grid md:grid-cols-2 gap-6 text-sm">
           <div>
             <h4 className="font-bold text-white mb-2">For Creators:</h4>

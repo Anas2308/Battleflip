@@ -1,7 +1,6 @@
 import { type FC } from 'react';
 import type { GameStats as GameStatsType } from '../types';
 import { formatSol, formatEur } from '../utils';
-import { ChartBarIcon, CurrencyDollarIcon, PlayIcon } from '@heroicons/react/24/outline';
 
 interface Props {
   stats: GameStatsType;
@@ -13,27 +12,27 @@ export const GameStats: FC<Props> = ({ stats, solEurRate }) => {
     {
       label: 'Active Games',
       value: stats.activeGames.toString(),
-      icon: PlayIcon,
       color: 'text-purple-400',
       bgColor: 'bg-purple-900/20',
-      borderColor: 'border-purple-500/30'
+      borderColor: 'border-purple-500/30',
+      showProgress: true
     },
     {
       label: 'Total Volume',
       value: `${formatSol(stats.totalVolume)} SOL`,
       subValue: `≈ ${formatEur(stats.totalVolumeEur)}€`,
-      icon: CurrencyDollarIcon,
       color: 'text-green-400',
       bgColor: 'bg-green-900/20',
-      borderColor: 'border-green-500/30'
+      borderColor: 'border-green-500/30',
+      showProgress: false
     },
     {
       label: 'Games Played',
       value: stats.gamesPlayed.toString(),
-      icon: ChartBarIcon,
       color: 'text-blue-400',
       bgColor: 'bg-blue-900/20',
-      borderColor: 'border-blue-500/30'
+      borderColor: 'border-blue-500/30',
+      showProgress: false
     }
   ];
 
@@ -47,29 +46,25 @@ export const GameStats: FC<Props> = ({ stats, solEurRate }) => {
             ${item.bgColor} ${item.borderColor}
           `}
         >
-          <div className="flex items-center justify-between mb-4">
-            <div className={`p-3 rounded-lg ${item.bgColor}`}>
-              <item.icon className={`w-6 h-6 ${item.color}`} />
+          {/* Main Stats - NO ICONS */}
+          <div className="text-center mb-4">
+            <div className={`text-3xl font-bold ${item.color} mb-2`}>
+              {item.value}
             </div>
-            <div className="text-right">
-              <div className={`text-2xl font-bold ${item.color}`}>
-                {item.value}
+            {item.subValue && (
+              <div className="text-sm text-gray-400">
+                {item.subValue}
               </div>
-              {item.subValue && (
-                <div className="text-sm text-gray-400 mt-1">
-                  {item.subValue}
-                </div>
-              )}
-            </div>
+            )}
           </div>
           
-          <div className="text-gray-400 font-medium">
+          <div className="text-gray-400 font-medium text-center">
             {item.label}
           </div>
           
           {/* Progress bar for active games */}
-          {item.label === 'Active Games' && (
-            <div className="mt-3">
+          {item.showProgress && (
+            <div className="mt-4">
               <div className="w-full bg-gray-700 rounded-full h-2">
                 <div 
                   className="bg-purple-500 h-2 rounded-full transition-all duration-500"
@@ -78,7 +73,7 @@ export const GameStats: FC<Props> = ({ stats, solEurRate }) => {
                   }}
                 ></div>
               </div>
-              <div className="text-xs text-gray-500 mt-1">
+              <div className="text-xs text-gray-500 mt-2 text-center">
                 {stats.activeGames}/10 games active
               </div>
             </div>
@@ -86,7 +81,7 @@ export const GameStats: FC<Props> = ({ stats, solEurRate }) => {
           
           {/* Volume trend indicator */}
           {item.label === 'Total Volume' && stats.totalVolume > 0 && (
-            <div className="mt-3 flex items-center gap-2">
+            <div className="mt-4 flex items-center justify-center gap-2">
               <div className="flex items-center text-green-400 text-sm">
                 <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
                   <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z" />
@@ -98,8 +93,8 @@ export const GameStats: FC<Props> = ({ stats, solEurRate }) => {
           
           {/* Games completion rate */}
           {item.label === 'Games Played' && stats.gamesPlayed > 0 && (
-            <div className="mt-3">
-              <div className="text-xs text-gray-500">
+            <div className="mt-4">
+              <div className="text-xs text-gray-500 text-center">
                 Platform fee collected: {formatSol(stats.totalVolume * 0.05)} SOL
               </div>
             </div>
