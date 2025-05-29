@@ -1,75 +1,218 @@
-import { type FC } from 'react';
+import { type FC, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { useGameState } from '../hooks';
+import { CreateGame } from '../components/CreateGame';
+import { ActiveGames } from '../components/ActiveGames';
+import { CoinFlip } from '../components/CoinFlip';
+import { FinishedGames } from '../components/FinishedGames';
+import { GameStats } from '../components/GameStats';
+import { ErrorDisplay } from '../components/ErrorDisplay';
 
 export const Home: FC = () => {
   const { connected } = useWallet();
+  const {
+    activeGames,
+    finishedGames,
+    gameStats,
+    solEurRate,
+    minBetSol,
+    loading,
+    error,
+    createGame,
+    joinGame,
+    performCoinFlip,
+    deleteGame,
+    clearError
+  } = useGameState();
+
+  const [activeTab, setActiveTab] = useState<'create' | 'active' | 'finished'>('active');
+  const [flipGameId, setFlipGameId] = useState<string | null>(null);
+
+  const handleJoinGame = async (gameId: string): Promise<boolean> => {
+    const success = await joinGame(gameId);
+    if (success) {
+      setFlipGameId(gameId);
+    }
+    return success;
+  };
+
+  const handleCoinFlip = async (choice: 'heads' | 'tails') => {
+    if (!flipGameId) return false;
+    
+    const success = await performCoinFlip(flipGameId, choice);
+    if (success) {
+      setFlipGameId(null);
+      setActiveTab('finished');
+    }
+    return success;
+  };
+
+  const flipGame = activeGames.find(g => g.id === flipGameId);
 
   return (
     <div className="space-y-8">
+      {/* Error Display */}
+      {error && (
+        <ErrorDisplay error={error} onClose={clearError} />
+      )}
+
       {/* Hero Section */}
       <div className="text-center py-12">
         <h2 className="text-4xl font-bold mb-4">
           Welcome to <span className="text-purple-400">BattleFlip</span>
         </h2>
-        <p className="text-xl text-gray-400">
+        <p className="text-xl text-gray-400 mb-6">
           The ultimate coin-flip gambling experience on Solana
         </p>
+        <div className="flex justify-center items-center gap-4 text-sm text-gray-500">
+          <span>1 SOL ≈ {solEurRate.toFixed(0)}€</span>
+          <span>•</span>
+          <span>Min bet: {minBetSol.toFixed(4)} SOL (0.50€)</span>
+        </div>
       </div>
+
+      {/* Game Statistics */}
+      <GameStats stats={gameStats} solEurRate={solEurRate} />
 
       {/* Connection Status */}
       {!connected ? (
         <div className="bg-gray-800 rounded-lg p-8 text-center">
-          <p className="text-lg mb-4">Connect your wallet to start playing!</p>
-          <div className="flex justify-center gap-4">
+          <div className="text-6xl mb-4">🎮</div>
+          <p className="text-lg mb-6">Connect your wallet to start playing!</p>
+          <div className="flex justify-center gap-8">
             <div className="flex items-center gap-2">
-              <span className="text-2xl">👻</span>
-              <span>Phantom</span>
+              <span className="text-3xl">👻</span>
+              <div>
+                <div className="font-bold">Phantom</div>
+                <div className="text-sm text-gray-400">Recommended</div>
+              </div>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-2xl">☀️</span>
-              <span>Solflare</span>
+              <span className="text-3xl">☀️</span>
+              <div>
+                <div className="font-bold">Solflare</div>
+                <div className="text-sm text-gray-400">Mobile friendly</div>
+              </div>
             </div>
           </div>
         </div>
       ) : (
-        <div className="grid md:grid-cols-2 gap-8">
-          {/* Create Game */}
-          <div className="bg-gray-800 rounded-lg p-6">
-            <h3 className="text-2xl font-bold mb-4 text-purple-400">Create Game</h3>
-            <p className="text-gray-400 mb-4">
-              Create a new coin-flip game and wait for an opponent
-            </p>
-            <button className="btn-primary w-full">
-              Create New Game
-            </button>
+        <>
+          {/* Coin Flip Modal */}
+          {flipGameId && flipGame && (
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-gray-800 rounded-xl shadow-2xl max-w-md w-full">
+                <div className="p-6">
+                  <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-xl font-bold text-purple-400">Coin Flip Time!</h3>
+                    <button
+                      onClick={() => setFlipGameId(null)}
+                      className="text-gray-400 hover:text-white"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  
+                  <CoinFlip
+                    onFlip={handleCoinFlip}
+                    loading={loading}
+                    gameId={flipGame.id}
+                    lobbyName={flipGame.lobbyName}
+                    betAmount={flipGame.betAmount}
+                    totalPot={flipGame.betAmount * 2}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Navigation Tabs */}
+          <div className="flex flex-wrap gap-2">
+            {[
+              { key: 'active', label: `Active Games (${activeGames.length})`, icon: '🎮' },
+              { key: 'create', label: 'Create Game', icon: '➕' },
+              { key: 'finished', label: `Recent Games (${finishedGames.length})`, icon: '📊' }
+            ].map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key as any)}
+                className={`
+                  px-6 py-3 rounded-lg font-medium transition-all
+                  ${activeTab === tab.key
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }
+                `}
+              >
+                <span className="mr-2">{tab.icon}</span>
+                {tab.label}
+              </button>
+            ))}
           </div>
 
-          {/* Join Game */}
-          <div className="bg-gray-800 rounded-lg p-6">
-            <h3 className="text-2xl font-bold mb-4 text-purple-400">Join Game</h3>
-            <p className="text-gray-400 mb-4">
-              Browse available games and challenge other players
-            </p>
-            <button className="btn-primary w-full">
-              Browse Games
-            </button>
+          {/* Tab Content */}
+          <div className="min-h-[400px]">
+            {activeTab === 'create' && (
+              <CreateGame
+                onCreateGame={createGame}
+                minBetSol={minBetSol}
+                solEurRate={solEurRate}
+                loading={loading}
+              />
+            )}
+
+            {activeTab === 'active' && (
+              <ActiveGames
+                games={activeGames}
+                onJoinGame={handleJoinGame}
+                onDeleteGame={deleteGame}
+                loading={loading}
+              />
+            )}
+
+            {activeTab === 'finished' && (
+              <FinishedGames games={finishedGames} />
+            )}
           </div>
-        </div>
+        </>
       )}
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-gray-800 rounded-lg p-6 text-center">
-          <p className="text-3xl font-bold text-purple-400">0</p>
-          <p className="text-gray-400">Active Games</p>
+      {/* Platform Information */}
+      <div className="bg-gradient-to-r from-purple-900/30 to-blue-900/30 rounded-xl p-6 border border-purple-500/30">
+        <h3 className="text-xl font-bold mb-4 text-purple-300">🎯 How BattleFlip Works</h3>
+        <div className="grid md:grid-cols-2 gap-6 text-sm">
+          <div>
+            <h4 className="font-bold text-white mb-2">For Creators:</h4>
+            <ul className="space-y-1 text-gray-300">
+              <li>• Create a lobby with your bet amount</li>
+              <li>• Wait for someone to join your game</li>
+              <li>• 50/50 chance to win 95% of total pot</li>
+              <li>• Delete anytime for 95% refund</li>
+            </ul>
+          </div>
+          <div>
+            <h4 className="font-bold text-white mb-2">For Players:</h4>
+            <ul className="space-y-1 text-gray-300">
+              <li>• Browse active games and join any</li>
+              <li>• Choose heads or tails for the flip</li>
+              <li>• Win 95% of total pot if you're right</li>
+              <li>• Self-play allowed (join your own games)</li>
+            </ul>
+          </div>
         </div>
-        <div className="bg-gray-800 rounded-lg p-6 text-center">
-          <p className="text-3xl font-bold text-purple-400">0 SOL</p>
-          <p className="text-gray-400">Total Volume</p>
-        </div>
-        <div className="bg-gray-800 rounded-lg p-6 text-center">
-          <p className="text-3xl font-bold text-purple-400">0</p>
-          <p className="text-gray-400">Games Played</p>
+        
+        <div className="mt-6 pt-4 border-t border-purple-500/30">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-gray-400">
+            <div>
+              <span className="font-bold text-green-400">Winner Payout:</span> 95% of total pot
+            </div>
+            <div>
+              <span className="font-bold text-yellow-400">Platform Fee:</span> 5% of total pot
+            </div>
+            <div>
+              <span className="font-bold text-blue-400">Auto-delete:</span> 24h with 100% refund
+            </div>
+          </div>
         </div>
       </div>
     </div>
