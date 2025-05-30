@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::clock::Clock;
+use anchor_lang::system_program;
 
 declare_id!("mWishTAXRe8gdGcqF6VqYW3JL1CkHU5waMfkM9VTVmg");
 
@@ -43,13 +44,28 @@ pub mod battleflip {
             GameError::BetTooLow
         );
 
+        // Get values before mutable borrow
+        let bet_amount_copy = bet_amount;
+        let clock = Clock::get()?;
+        let creator_key = ctx.accounts.creator.key();
+
+        // Transfer SOL from creator to game account
+        let cpi_context = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from: ctx.accounts.creator.to_account_info(),
+                to: ctx.accounts.game.to_account_info(),
+            },
+        );
+        system_program::transfer(cpi_context, bet_amount_copy)?;
+
+        // Now modify game state
         let game = &mut ctx.accounts.game;
         let platform = &mut ctx.accounts.platform;
-        let clock = Clock::get()?;
 
-        game.creator = ctx.accounts.creator.key();
+        game.creator = creator_key;
         game.lobby_name = lobby_name;
-        game.bet_amount = bet_amount;
+        game.bet_amount = bet_amount_copy;
         game.created_at = clock.unix_timestamp;
         game.status = GameStatus::Active;
         game.player = None;
@@ -64,20 +80,37 @@ pub mod battleflip {
     }
 
     pub fn join_game(ctx: Context<JoinGame>) -> Result<()> {
-        let game = &mut ctx.accounts.game;
         let clock = Clock::get()?;
-
+        let player_key = ctx.accounts.player.key();
+        
+        // Get bet amount before mutable borrow
+        let bet_amount = ctx.accounts.game.bet_amount;
+        let created_at = ctx.accounts.game.created_at;
+        let status = ctx.accounts.game.status.clone();
+        
         require!(
-            game.status == GameStatus::Active,
+            status == GameStatus::Active,
             GameError::GameNotActive
         );
 
         require!(
-            clock.unix_timestamp - game.created_at < LOBBY_EXPIRY_TIME,
+            clock.unix_timestamp - created_at < LOBBY_EXPIRY_TIME,
             GameError::GameExpired
         );
 
-        game.player = Some(ctx.accounts.player.key());
+        // Transfer SOL from player to game account
+        let cpi_context = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from: ctx.accounts.player.to_account_info(),
+                to: ctx.accounts.game.to_account_info(),
+            },
+        );
+        system_program::transfer(cpi_context, bet_amount)?;
+
+        // Now modify game state
+        let game = &mut ctx.accounts.game;
+        game.player = Some(player_key);
         game.status = GameStatus::InProgress;
 
         msg!("Player joined game: {}", game.lobby_name);
@@ -85,24 +118,29 @@ pub mod battleflip {
     }
 
     pub fn flip_coin(ctx: Context<FlipCoin>, player_choice: CoinSide) -> Result<()> {
-        let game = &mut ctx.accounts.game;
-        let platform = &mut ctx.accounts.platform;
+        let clock = Clock::get()?;
+        let player_key = ctx.accounts.player.key();
+        
+        // Get values before mutable borrow
+        let game_status = ctx.accounts.game.status.clone();
+        let game_player = ctx.accounts.game.player;
+        let bet_amount = ctx.accounts.game.bet_amount;
+        let creator = ctx.accounts.game.creator;
         
         require!(
-            game.status == GameStatus::InProgress,
+            game_status == GameStatus::InProgress,
             GameError::GameNotInProgress
         );
 
         require!(
-            game.player == Some(ctx.accounts.player.key()),
+            game_player == Some(player_key),
             GameError::NotPlayer
         );
 
         // Generate pseudo-random result
-        let clock = Clock::get()?;
         let random_value = (clock.unix_timestamp as u64)
             .wrapping_mul(clock.slot)
-            .wrapping_add(game.bet_amount)
+            .wrapping_add(bet_amount)
             % 2;
         
         let result = if random_value == 0 {
@@ -111,22 +149,25 @@ pub mod battleflip {
             CoinSide::Tails
         };
 
-        game.result = Some(result);
-        game.player_choice = Some(player_choice);
-
         // Determine winner
         let winner = if result == player_choice {
-            game.player.unwrap()
+            game_player.unwrap()
         } else {
-            game.creator
+            creator
         };
 
+        // Now modify state
+        let game = &mut ctx.accounts.game;
+        let platform = &mut ctx.accounts.platform;
+
+        game.result = Some(result);
+        game.player_choice = Some(player_choice);
         game.winner = Some(winner);
         game.status = GameStatus::Finished;
 
         // Update platform stats
         platform.total_games += 1;
-        platform.total_volume += game.bet_amount * 2;
+        platform.total_volume += bet_amount * 2;
         platform.active_games -= 1;
 
         msg!(
@@ -139,38 +180,83 @@ pub mod battleflip {
     }
 
     pub fn claim_winnings(ctx: Context<ClaimWinnings>) -> Result<()> {
-        let game = &ctx.accounts.game;
+        let game_status = ctx.accounts.game.status.clone();
+        let game_winner = ctx.accounts.game.winner;
+        let bet_amount = ctx.accounts.game.bet_amount;
+        let winner_key = ctx.accounts.winner.key();
         
         require!(
-            game.status == GameStatus::Finished,
+            game_status == GameStatus::Finished,
             GameError::GameNotFinished
         );
 
         require!(
-            game.winner == Some(ctx.accounts.winner.key()),
+            game_winner == Some(winner_key),
             GameError::NotWinner
         );
 
+        let total_pot = bet_amount * 2;
+        let winner_amount = (total_pot * 95) / 100; // 95%
+        let fee_amount = total_pot - winner_amount; // 5%
+
+        // Transfer winnings to winner
+        **ctx.accounts.game.to_account_info().try_borrow_mut_lamports()? -= winner_amount;
+        **ctx.accounts.winner.to_account_info().try_borrow_mut_lamports()? += winner_amount;
+
+        // Transfer fee to platform
+        **ctx.accounts.game.to_account_info().try_borrow_mut_lamports()? -= fee_amount;
+        **ctx.accounts.fee_wallet.to_account_info().try_borrow_mut_lamports()? += fee_amount;
+
+        msg!("Winnings claimed! Winner: {}, Amount: {}", winner_key, winner_amount);
         Ok(())
     }
 
     pub fn delete_game(ctx: Context<DeleteGame>) -> Result<()> {
-        let game = &ctx.accounts.game;
-        let platform = &mut ctx.accounts.platform;
+        let clock = Clock::get()?;
+        let creator_key = ctx.accounts.creator.key();
+        
+        // Get values before mutable borrow
+        let game_status = ctx.accounts.game.status.clone();
+        let game_creator = ctx.accounts.game.creator;
+        let bet_amount = ctx.accounts.game.bet_amount;
+        let created_at = ctx.accounts.game.created_at;
+        let lobby_name = ctx.accounts.game.lobby_name.clone();
         
         require!(
-            game.status == GameStatus::Active,
+            game_status == GameStatus::Active,
             GameError::GameNotActive
         );
 
         require!(
-            game.creator == ctx.accounts.creator.key(),
+            game_creator == creator_key,
             GameError::NotCreator
         );
 
+        let time_elapsed = clock.unix_timestamp - created_at;
+        let refund_amount = if time_elapsed >= LOBBY_EXPIRY_TIME {
+            // Auto-delete after 24h: 100% refund
+            bet_amount
+        } else {
+            // Manual delete: 95% refund, 5% fee
+            let fee_amount = (bet_amount * 5) / 100;
+            let refund = bet_amount - fee_amount;
+            
+            // Transfer fee to platform
+            **ctx.accounts.game.to_account_info().try_borrow_mut_lamports()? -= fee_amount;
+            **ctx.accounts.fee_wallet.to_account_info().try_borrow_mut_lamports()? += fee_amount;
+            
+            refund
+        };
+
+        // Refund to creator
+        **ctx.accounts.game.to_account_info().try_borrow_mut_lamports()? -= refund_amount;
+        **ctx.accounts.creator.to_account_info().try_borrow_mut_lamports()? += refund_amount;
+
+        // Update platform state
+        let platform = &mut ctx.accounts.platform;
         platform.active_games -= 1;
 
-        msg!("Game deleted: {}", game.lobby_name);
+        msg!("Game deleted: {}, Refund: {}", lobby_name, refund_amount);
         Ok(())
     }
 }

@@ -26,39 +26,71 @@ describe("battleflip", () => {
   let gameBump: number;
 
   before(async () => {
-    console.log("Skipping airdrops - using existing wallet balance");
-    console.log("Provider wallet:", provider.wallet.publicKey.toString());
+    console.log("Setting up test accounts with proper funding...");
     
-    const balance = await provider.connection.getBalance(provider.wallet.publicKey);
-    console.log("Wallet balance:", balance / anchor.web3.LAMPORTS_PER_SOL, "SOL");
+    // Fund all test accounts
+    const fundingAmount = 5 * anchor.web3.LAMPORTS_PER_SOL; // 10 SOL each
     
-    if (balance < 5 * anchor.web3.LAMPORTS_PER_SOL) {
-      throw new Error("Insufficient balance! Need at least 5 SOL");
+    const fundingTxs = await Promise.all([
+      provider.connection.requestAirdrop(platformAuthority.publicKey, fundingAmount),
+      provider.connection.requestAirdrop(feeWallet.publicKey, fundingAmount),
+      provider.connection.requestAirdrop(creator.publicKey, fundingAmount),
+      provider.connection.requestAirdrop(player.publicKey, fundingAmount)
+    ]);
+
+    // Wait for all airdrops to be confirmed
+    for (const tx of fundingTxs) {
+      await provider.connection.confirmTransaction(tx, 'confirmed');
     }
+
+    console.log("✅ All accounts funded successfully!");
+    
+    // Verify balances
+    const balances = await Promise.all([
+      provider.connection.getBalance(platformAuthority.publicKey),
+      provider.connection.getBalance(feeWallet.publicKey),
+      provider.connection.getBalance(creator.publicKey),
+      provider.connection.getBalance(player.publicKey)
+    ]);
+
+    console.log("Account balances:");
+    console.log(`  Platform Authority: ${balances[0] / anchor.web3.LAMPORTS_PER_SOL} SOL`);
+    console.log(`  Fee Wallet: ${balances[1] / anchor.web3.LAMPORTS_PER_SOL} SOL`);
+    console.log(`  Creator: ${balances[2] / anchor.web3.LAMPORTS_PER_SOL} SOL`);
+    console.log(`  Player: ${balances[3] / anchor.web3.LAMPORTS_PER_SOL} SOL`);
   });
 
   it("Initializes platform", async () => {
-    await program.methods
-      .initializePlatform()
-      .accountsStrict({
-        platform: platformPDA,
-        authority: platformAuthority.publicKey,
-        feeWallet: feeWallet.publicKey,
-        systemProgram: anchor.web3.SystemProgram.programId,
-      })
-      .signers([platformAuthority])
-      .rpc();
-
-    const platform = await program.account.platform.fetch(platformPDA);
-    assert.equal(platform.authority.toString(), platformAuthority.publicKey.toString());
-    assert.equal(platform.feeWallet.toString(), feeWallet.publicKey.toString());
-    assert.equal(platform.totalGames.toNumber(), 0);
-    assert.equal(platform.activeGames.toNumber(), 0);
+    console.log("🚀 Initializing platform...");
     
-    console.log("✅ Platform initialized successfully!");
+    try {
+      await program.methods
+        .initializePlatform()
+        .accountsStrict({
+          platform: platformPDA,
+          authority: platformAuthority.publicKey,
+          feeWallet: feeWallet.publicKey,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([platformAuthority])
+        .rpc();
+
+      const platform = await program.account.platform.fetch(platformPDA);
+      assert.equal(platform.authority.toString(), platformAuthority.publicKey.toString());
+      assert.equal(platform.feeWallet.toString(), feeWallet.publicKey.toString());
+      assert.equal(platform.totalGames.toNumber(), 0);
+      assert.equal(platform.activeGames.toNumber(), 0);
+      
+      console.log("✅ Platform initialized successfully!");
+    } catch (error) {
+      console.error("❌ Platform initialization failed:", error);
+      throw error;
+    }
   });
 
   it("Creates a game", async () => {
+    console.log("🎮 Creating a game...");
+    
     const lobbyName = "TestLobby123";
     const betAmount = new anchor.BN(0.1 * anchor.web3.LAMPORTS_PER_SOL); // 0.1 SOL
 
@@ -75,74 +107,98 @@ describe("battleflip", () => {
       program.programId
     );
 
-    await program.methods
-      .createGame(lobbyName, betAmount)
-      .accountsStrict({
-        game: gamePDA,
-        platform: platformPDA,
-        creator: creator.publicKey,
-        systemProgram: anchor.web3.SystemProgram.programId,
-      })
-      .signers([creator])
-      .rpc();
+    console.log(`  Game PDA: ${gamePDA.toString()}`);
+    console.log(`  Bet Amount: ${betAmount.toNumber() / anchor.web3.LAMPORTS_PER_SOL} SOL`);
 
-    const game = await program.account.game.fetch(gamePDA);
-    assert.equal(game.lobbyName, lobbyName);
-    assert.equal(game.creator.toString(), creator.publicKey.toString());
-    assert.equal(game.betAmount.toNumber(), betAmount.toNumber());
-    assert.equal(game.status.active !== undefined, true);
-    assert.equal(game.player, null);
-    
-    console.log("✅ Game created successfully!");
-    console.log(`   Lobby: ${lobbyName}`);
-    console.log(`   Bet: ${betAmount.toNumber() / anchor.web3.LAMPORTS_PER_SOL} SOL`);
+    try {
+      await program.methods
+        .createGame(lobbyName, betAmount)
+        .accountsStrict({
+          game: gamePDA,
+          platform: platformPDA,
+          creator: creator.publicKey,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([creator])
+        .rpc();
+
+      const game = await program.account.game.fetch(gamePDA);
+      assert.equal(game.lobbyName, lobbyName);
+      assert.equal(game.creator.toString(), creator.publicKey.toString());
+      assert.equal(game.betAmount.toNumber(), betAmount.toNumber());
+      assert.equal(game.status.active !== undefined, true);
+      assert.equal(game.player, null);
+      
+      console.log("✅ Game created successfully!");
+      console.log(`   Lobby: ${lobbyName}`);
+      console.log(`   Bet: ${betAmount.toNumber() / anchor.web3.LAMPORTS_PER_SOL} SOL`);
+    } catch (error) {
+      console.error("❌ Game creation failed:", error);
+      throw error;
+    }
   });
 
   it("Player joins game", async () => {
-    await program.methods
-      .joinGame()
-      .accountsStrict({
-        game: gamePDA,
-        player: player.publicKey,
-        systemProgram: anchor.web3.SystemProgram.programId,
-      })
-      .signers([player])
-      .rpc();
-
-    const game = await program.account.game.fetch(gamePDA);
-    assert.equal(game.player?.toString(), player.publicKey.toString());
-    assert.equal(game.status.inProgress !== undefined, true);
+    console.log("👤 Player joining game...");
     
-    console.log("✅ Player joined game successfully!");
+    try {
+      await program.methods
+        .joinGame()
+        .accountsStrict({
+          game: gamePDA,
+          player: player.publicKey,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([player])
+        .rpc();
+
+      const game = await program.account.game.fetch(gamePDA);
+      assert.equal(game.player?.toString(), player.publicKey.toString());
+      assert.equal(game.status.inProgress !== undefined, true);
+      
+      console.log("✅ Player joined game successfully!");
+    } catch (error) {
+      console.error("❌ Player join failed:", error);
+      throw error;
+    }
   });
 
   it("Player flips coin", async () => {
+    console.log("🪙 Flipping coin...");
+    
     const playerChoice = { heads: {} }; // Player chooses heads
 
-    await program.methods
-      .flipCoin(playerChoice)
-      .accountsStrict({
-        game: gamePDA,
-        platform: platformPDA,
-        player: player.publicKey,
-      })
-      .signers([player])
-      .rpc();
+    try {
+      await program.methods
+        .flipCoin(playerChoice)
+        .accountsStrict({
+          game: gamePDA,
+          platform: platformPDA,
+          player: player.publicKey,
+        })
+        .signers([player])
+        .rpc();
 
-    const game = await program.account.game.fetch(gamePDA);
-    assert.equal(game.status.finished !== undefined, true);
-    assert.notEqual(game.winner, null);
-    assert.notEqual(game.result, null);
-    
-    const result = game.result?.heads !== undefined ? "Heads" : "Tails";
-    const winner = game.winner?.toString() === player.publicKey.toString() ? "Player" : "Creator";
-    
-    console.log("✅ Coin flip completed!");
-    console.log(`   Result: ${result}`);
-    console.log(`   Winner: ${winner}`);
+      const game = await program.account.game.fetch(gamePDA);
+      assert.equal(game.status.finished !== undefined, true);
+      assert.notEqual(game.winner, null);
+      assert.notEqual(game.result, null);
+      
+      const result = game.result?.heads !== undefined ? "Heads" : "Tails";
+      const winner = game.winner?.toString() === player.publicKey.toString() ? "Player" : "Creator";
+      
+      console.log("✅ Coin flip completed!");
+      console.log(`   Result: ${result}`);
+      console.log(`   Winner: ${winner}`);
+    } catch (error) {
+      console.error("❌ Coin flip failed:", error);
+      throw error;
+    }
   });
 
   it("Winner claims winnings", async () => {
+    console.log("💰 Claiming winnings...");
+    
     const game = await program.account.game.fetch(gamePDA);
     const winner = game.winner!;
     const isPlayerWinner = winner.toString() === player.publicKey.toString();
@@ -151,40 +207,47 @@ describe("battleflip", () => {
     const winnerBalanceBefore = await provider.connection.getBalance(winner);
     const feeWalletBalanceBefore = await provider.connection.getBalance(feeWallet.publicKey);
 
-    await program.methods
-      .claimWinnings()
-      .accountsStrict({
-        game: gamePDA,
-        winner: winner,
-        feeWallet: feeWallet.publicKey,
-        platform: platformPDA,
-        systemProgram: anchor.web3.SystemProgram.programId,
-      })
-      .signers([winnerKeypair])
-      .rpc();
-
-    const winnerBalanceAfter = await provider.connection.getBalance(winner);
-    const feeWalletBalanceAfter = await provider.connection.getBalance(feeWallet.publicKey);
-
-    // Check balances (approximately, due to transaction fees)
-    const totalPot = 0.2 * anchor.web3.LAMPORTS_PER_SOL; // 0.1 SOL * 2
-    const expectedWinnings = Math.floor(totalPot * 0.95); // 95% to winner
-    const expectedFee = Math.floor(totalPot * 0.05); // 5% fee
-
-    console.log("✅ Winnings claimed successfully!");
-    console.log(`   Winner received: ~${expectedWinnings / anchor.web3.LAMPORTS_PER_SOL} SOL`);
-    console.log(`   Platform fee: ~${expectedFee / anchor.web3.LAMPORTS_PER_SOL} SOL`);
-    
-    // Verify game account was closed
     try {
-      await program.account.game.fetch(gamePDA);
-      assert.fail("Game account should be closed");
-    } catch (err) {
-      console.log("✅ Game account properly closed!");
+      await program.methods
+        .claimWinnings()
+        .accountsStrict({
+          game: gamePDA,
+          winner: winner,
+          feeWallet: feeWallet.publicKey,
+          platform: platformPDA,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([winnerKeypair])
+        .rpc();
+
+      const winnerBalanceAfter = await provider.connection.getBalance(winner);
+      const feeWalletBalanceAfter = await provider.connection.getBalance(feeWallet.publicKey);
+
+      // Check balances (approximately, due to transaction fees)
+      const totalPot = 0.2 * anchor.web3.LAMPORTS_PER_SOL; // 0.1 SOL * 2
+      const expectedWinnings = Math.floor(totalPot * 0.95); // 95% to winner
+      const expectedFee = Math.floor(totalPot * 0.05); // 5% fee
+
+      console.log("✅ Winnings claimed successfully!");
+      console.log(`   Winner received: ~${expectedWinnings / anchor.web3.LAMPORTS_PER_SOL} SOL`);
+      console.log(`   Platform fee: ~${expectedFee / anchor.web3.LAMPORTS_PER_SOL} SOL`);
+      
+      // Verify game account was closed
+      try {
+        await program.account.game.fetch(gamePDA);
+        assert.fail("Game account should be closed");
+      } catch (err) {
+        console.log("✅ Game account properly closed!");
+      }
+    } catch (error) {
+      console.error("❌ Claim winnings failed:", error);
+      throw error;
     }
   });
 
   it("Creates and deletes a game", async () => {
+    console.log("🗑️ Testing game deletion...");
+    
     const lobbyName = "DeleteTest";
     const betAmount = new anchor.BN(0.05 * anchor.web3.LAMPORTS_PER_SOL);
 
@@ -201,48 +264,55 @@ describe("battleflip", () => {
       program.programId
     );
 
-    // Create game
-    await program.methods
-      .createGame(lobbyName, betAmount)
-      .accountsStrict({
-        game: newGamePDA,
-        platform: platformPDA,
-        creator: creator.publicKey,
-        systemProgram: anchor.web3.SystemProgram.programId,
-      })
-      .signers([creator])
-      .rpc();
+    try {
+      // Create game
+      await program.methods
+        .createGame(lobbyName, betAmount)
+        .accountsStrict({
+          game: newGamePDA,
+          platform: platformPDA,
+          creator: creator.publicKey,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([creator])
+        .rpc();
 
-    console.log("✅ Game created for deletion test");
+      console.log("✅ Game created for deletion test");
 
-    const creatorBalanceBefore = await provider.connection.getBalance(creator.publicKey);
-    const feeWalletBalanceBefore = await provider.connection.getBalance(feeWallet.publicKey);
+      const creatorBalanceBefore = await provider.connection.getBalance(creator.publicKey);
+      const feeWalletBalanceBefore = await provider.connection.getBalance(feeWallet.publicKey);
 
-    // Delete game
-    await program.methods
-      .deleteGame()
-      .accountsStrict({
-        game: newGamePDA,
-        platform: platformPDA,
-        creator: creator.publicKey,
-        feeWallet: feeWallet.publicKey,
-        systemProgram: anchor.web3.SystemProgram.programId,
-      })
-      .signers([creator])
-      .rpc();
+      // Delete game
+      await program.methods
+        .deleteGame()
+        .accountsStrict({
+          game: newGamePDA,
+          platform: platformPDA,
+          creator: creator.publicKey,
+          feeWallet: feeWallet.publicKey,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([creator])
+        .rpc();
 
-    const creatorBalanceAfter = await provider.connection.getBalance(creator.publicKey);
-    const feeWalletBalanceAfter = await provider.connection.getBalance(feeWallet.publicKey);
+      const creatorBalanceAfter = await provider.connection.getBalance(creator.publicKey);
+      const feeWalletBalanceAfter = await provider.connection.getBalance(feeWallet.publicKey);
 
-    const refundAmount = betAmount.toNumber() * 0.95; // 95% refund
-    const feeAmount = betAmount.toNumber() * 0.05; // 5% fee
+      const refundAmount = betAmount.toNumber() * 0.95; // 95% refund
+      const feeAmount = betAmount.toNumber() * 0.05; // 5% fee
 
-    console.log("✅ Game deleted successfully!");
-    console.log(`   Creator refunded: ~${refundAmount / anchor.web3.LAMPORTS_PER_SOL} SOL`);
-    console.log(`   Platform fee: ~${feeAmount / anchor.web3.LAMPORTS_PER_SOL} SOL`);
+      console.log("✅ Game deleted successfully!");
+      console.log(`   Creator refunded: ~${refundAmount / anchor.web3.LAMPORTS_PER_SOL} SOL`);
+      console.log(`   Platform fee: ~${feeAmount / anchor.web3.LAMPORTS_PER_SOL} SOL`);
+    } catch (error) {
+      console.error("❌ Game deletion failed:", error);
+      throw error;
+    }
   });
 
   it("Fails to create game with invalid lobby name", async () => {
+    console.log("❌ Testing invalid lobby name...");
+    
     const invalidName = "Test@#$"; // Contains special characters
     const betAmount = new anchor.BN(0.1 * anchor.web3.LAMPORTS_PER_SOL);
 
@@ -276,6 +346,8 @@ describe("battleflip", () => {
   });
 
   it("Fails to create game with bet too low", async () => {
+    console.log("❌ Testing bet too low...");
+    
     const lobbyName = "LowBetTest";
     const betAmount = new anchor.BN(0.001 * anchor.web3.LAMPORTS_PER_SOL); // Too low
 
