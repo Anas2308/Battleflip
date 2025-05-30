@@ -44,7 +44,6 @@ pub mod battleflip {
             GameError::BetTooLow
         );
 
-        // Get values before mutable borrow
         let bet_amount_copy = bet_amount;
         let clock = Clock::get()?;
         let creator_key = ctx.accounts.creator.key();
@@ -59,10 +58,13 @@ pub mod battleflip {
         );
         system_program::transfer(cpi_context, bet_amount_copy)?;
 
-        // Now modify game state
-        let game = &mut ctx.accounts.game;
+        // CRITICAL FIX: Update platform BEFORE setting game state
         let platform = &mut ctx.accounts.platform;
+        platform.active_games += 1;
+        platform.total_games += 1; // ← FIXED: This was missing!
 
+        // Now set game state
+        let game = &mut ctx.accounts.game;
         game.creator = creator_key;
         game.lobby_name = lobby_name;
         game.bet_amount = bet_amount_copy;
@@ -73,9 +75,7 @@ pub mod battleflip {
         game.result = None;
         game.player_choice = None;
 
-        platform.active_games += 1;
-
-        msg!("Game created: {}", game.lobby_name);
+        msg!("Game created: {} (Game #{} total)", game.lobby_name, platform.total_games);
         Ok(())
     }
 
@@ -137,10 +137,11 @@ pub mod battleflip {
             GameError::NotPlayer
         );
 
-        // Generate pseudo-random result
+        // Generate pseudo-random result using clock + slot + bet amount
         let random_value = (clock.unix_timestamp as u64)
             .wrapping_mul(clock.slot)
             .wrapping_add(bet_amount)
+            .wrapping_add(player_key.to_bytes()[0] as u64) // Add some entropy from player key
             % 2;
         
         let result = if random_value == 0 {
@@ -166,8 +167,7 @@ pub mod battleflip {
         game.status = GameStatus::Finished;
 
         // Update platform stats
-        platform.total_games += 1;
-        platform.total_volume += bet_amount * 2;
+        platform.total_volume += bet_amount * 2; // Total pot
         platform.active_games -= 1;
 
         msg!(
@@ -278,7 +278,9 @@ pub struct InitializePlatform<'info> {
     pub system_program: Program<'info, System>,
 }
 
+// FIXED: Simple PDA structure without Clock in attributes
 #[derive(Accounts)]
+#[instruction(lobby_name: String, bet_amount: u64)]
 pub struct CreateGame<'info> {
     #[account(
         init,
@@ -287,7 +289,9 @@ pub struct CreateGame<'info> {
         seeds = [
             b"game",
             platform.key().as_ref(),
-            platform.total_games.to_le_bytes().as_ref()
+            platform.total_games.to_le_bytes().as_ref(),
+            creator.key().as_ref(),
+            lobby_name.as_bytes()
         ],
         bump
     )]

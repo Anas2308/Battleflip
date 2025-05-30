@@ -95,6 +95,14 @@
                 "kind": "account",
                 "path": "platform.total_games",
                 "account": "Platform"
+              },
+              {
+                "kind": "account",
+                "path": "creator"
+              },
+              {
+                "kind": "arg",
+                "path": "lobby_name"
               }
             ]
           }
