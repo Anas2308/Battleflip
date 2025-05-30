@@ -7,7 +7,7 @@ import type { GameLobby, FinishedGame, GameStats } from '../types';
 export const PROGRAM_ID = new PublicKey('mWishTAXRe8gdGcqF6VqYW3JL1CkHU5waMfkM9VTVmg');
 
 // Fee wallet (replace with your actual fee wallet)
-export const FEE_WALLET = new PublicKey('Your_Fee_Wallet_Address_Here');
+export const FEE_WALLET = new PublicKey('HQre2z3L5eLdt9MCjLdkdo7pjqozrbD8epqJ6k7RNGxT');
 
 // Platform PDA
 export const [PLATFORM_PDA] = PublicKey.findProgramAddressSync(
@@ -109,12 +109,14 @@ export class BlockchainService {
       const platformData = await program.account.platform.fetch(PLATFORM_PDA);
       const gameCount = platformData.totalGames;
 
-      // Calculate game PDA
+      // Calculate game PDA with a unique seed (adding timestamp for uniqueness)
+      const uniqueSeed = Date.now().toString();
       const [gamePDA] = PublicKey.findProgramAddressSync(
         [
           Buffer.from('game'),
           PLATFORM_PDA.toBuffer(),
-          gameCount.toArrayLike(Buffer, 'le', 8)
+          gameCount.toArrayLike(Buffer, 'le', 8),
+          Buffer.from(uniqueSeed)
         ],
         PROGRAM_ID
       );
@@ -263,23 +265,29 @@ export class BlockchainService {
     if (!this.program) return [];
 
     try {
-      // Get all game accounts and filter on client side
-      const allAccounts = await this.connection.getProgramAccounts(PROGRAM_ID, {
-        filters: [
-          {
-            dataSize: 200, // Approximate size of Game account
-          }
-        ]
-      });
+      console.log('🔍 Fetching active games...');
+      
+      // Get ALL program accounts (not filtered by size)
+      const allAccounts = await this.connection.getProgramAccounts(PROGRAM_ID);
+      console.log(`📊 Found ${allAccounts.length} total program accounts`);
 
       const games: GameLobby[] = [];
       
       for (const account of allAccounts) {
         try {
+          // Try to decode as game account
           const gameData = await this.program.account.game.fetch(account.pubkey);
+          console.log('🎮 Found game:', {
+            pubkey: account.pubkey.toString(),
+            lobbyName: gameData.lobbyName,
+            status: gameData.status,
+            creator: gameData.creator.toString()
+          });
           
-          // Check if game is active
-          if (gameData.status.active !== undefined) {
+          // Check if game is active (any status that's not finished)
+          if (gameData.status.active !== undefined || gameData.status.inProgress !== undefined) {
+            const status = gameData.status.active !== undefined ? 'active' : 'in_progress';
+            
             games.push({
               id: account.pubkey.toString(),
               creator: gameData.creator.toString(),
@@ -287,19 +295,21 @@ export class BlockchainService {
               betAmount: gameData.betAmount.toNumber() / LAMPORTS_PER_SOL,
               betAmountEur: 0, // Will be calculated in frontend
               createdAt: new Date(gameData.createdAt.toNumber() * 1000),
-              status: 'active',
+              status: status,
               player: gameData.player?.toString(),
             });
           }
         } catch (err) {
-          // Skip invalid accounts
+          // This account is not a game account (might be platform account)
+          console.log('⚠️ Could not decode account as game:', account.pubkey.toString());
           continue;
         }
       }
 
+      console.log(`✅ Found ${games.length} active games`);
       return games.sort((a, b) => b.betAmount - a.betAmount);
     } catch (error) {
-      console.error('Error fetching active games:', error);
+      console.error('❌ Error fetching active games:', error);
       return [];
     }
   }
@@ -322,6 +332,7 @@ export class BlockchainService {
   async getPlatformStats(): Promise<GameStats> {
     try {
       if (!this.program) {
+        console.log('⚠️ No program initialized');
         return {
           activeGames: 0,
           totalVolume: 0,
@@ -331,6 +342,11 @@ export class BlockchainService {
       }
 
       const platformData = await this.program.account.platform.fetch(PLATFORM_PDA);
+      console.log('📊 Platform stats:', {
+        totalGames: platformData.totalGames.toNumber(),
+        activeGames: platformData.activeGames.toNumber(),
+        totalVolume: platformData.totalVolume.toNumber() / LAMPORTS_PER_SOL
+      });
       
       return {
         activeGames: platformData.activeGames.toNumber(),
@@ -339,7 +355,7 @@ export class BlockchainService {
         gamesPlayed: platformData.totalGames.toNumber()
       };
     } catch (error) {
-      console.error('Error fetching platform stats:', error);
+      console.error('❌ Error fetching platform stats:', error);
       return {
         activeGames: 0,
         totalVolume: 0,
