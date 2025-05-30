@@ -1,6 +1,6 @@
 import { type FC, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { useGameState } from '../hooks';
+import { useBlockchainGameState } from '../hooks/useBlockchainGameState';
 import { CreateGame } from '../components/CreateGame';
 import { ActiveGames } from '../components/ActiveGames';
 import { CoinFlip } from '../components/CoinFlip';
@@ -18,12 +18,17 @@ export const Home: FC = () => {
     minBetSol,
     loading,
     error,
+    walletBalance,
+    platformInitialized,
     createGame,
     joinGame,
     performCoinFlip,
     deleteGame,
-    clearError
-  } = useGameState();
+    clearError,
+    refreshData,
+    requestDevnetAirdrop,
+    initializePlatform
+  } = useBlockchainGameState();
 
   const [activeTab, setActiveTab] = useState<'create' | 'active' | 'finished'>('active');
   const [flipGameId, setFlipGameId] = useState<string | null>(null);
@@ -102,6 +107,44 @@ export const Home: FC = () => {
         </div>
       ) : (
         <>
+          {/* Devnet Helper */}
+          <div className="bg-blue-900/20 rounded-lg p-4 border border-blue-500/30">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="font-bold text-blue-300">Devnet Testing Mode</h4>
+                <p className="text-sm text-gray-300">
+                  Balance: {walletBalance.toFixed(4)} SOL
+                  {!platformInitialized && " • Platform needs initialization"}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                {!platformInitialized && (
+                  <button
+                    onClick={initializePlatform}
+                    disabled={loading}
+                    className="btn-primary text-sm px-4 py-2"
+                  >
+                    Initialize Platform
+                  </button>
+                )}
+                <button
+                  onClick={() => requestDevnetAirdrop(2)}
+                  disabled={loading}
+                  className="btn-secondary text-sm px-4 py-2"
+                >
+                  Get 2 SOL
+                </button>
+                <button
+                  onClick={refreshData}
+                  disabled={loading}
+                  className="btn-secondary text-sm px-4 py-2"
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+          </div>
+
           {/* Coin Flip Modal */}
           {flipGameId && flipGame && (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">

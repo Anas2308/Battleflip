@@ -11,6 +11,8 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@coral-xyz/anchor": "^0.31.1",
+    "@coral-xyz/borsh": "^0.31.1",
     "@headlessui/react": "^2.2.4",
     "@heroicons/react": "^2.2.0",
     "@solana/spl-token": "^0.1.8",
@@ -24,7 +26,8 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "vite-plugin-node-polyfills": "^0.23.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.25.0",
