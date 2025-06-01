@@ -1,4 +1,4 @@
-import { type FC, useState } from 'react';
+import { type FC, useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useBlockchainGameState } from '../hooks/useBlockchainGameState';
 import { CreateGame } from '../components/CreateGame';
@@ -10,6 +10,7 @@ import { ErrorDisplay } from '../components/ErrorDisplay';
 
 export const Home: FC = () => {
   const { connected } = useWallet();
+  const gameState = useBlockchainGameState();
   const {
     activeGames,
     finishedGames,
@@ -28,10 +29,20 @@ export const Home: FC = () => {
     refreshData,
     requestDevnetAirdrop,
     initializePlatform
-  } = useBlockchainGameState();
+  } = gameState;
 
   const [activeTab, setActiveTab] = useState<'create' | 'active' | 'finished'>('active');
   const [flipGameId, setFlipGameId] = useState<string | null>(null);
+
+  // 🛠 DEBUG: Make blockchainService available in browser console
+  useEffect(() => {
+    // Import the blockchainService and make it globally available
+    import('../utils/blockchain').then(({ blockchainService }) => {
+      (window as any).blockchainService = blockchainService;
+      console.log('🔧 DEBUG: blockchainService is now available in console');
+      console.log('Use: await window.blockchainService.debugPlatformState()');
+    });
+  }, []);
 
   const handleJoinGame = async (gameId: string): Promise<boolean> => {
     const success = await joinGame(gameId);
@@ -61,7 +72,7 @@ export const Home: FC = () => {
         <ErrorDisplay error={error} onClose={clearError} />
       )}
 
-      {/* Hero Section - CLEANED */}
+      {/* Hero Section */}
       <div className="text-center py-8">
         <h2 className="text-4xl font-bold mb-4">
           Welcome to <span className="text-purple-400">BattleFlip</span>
@@ -79,7 +90,7 @@ export const Home: FC = () => {
       {/* Game Statistics */}
       <GameStats stats={gameStats} solEurRate={solEurRate} />
 
-      {/* Connection Status - CLEANED */}
+      {/* Connection Status */}
       {!connected ? (
         <div className="bg-gray-800 rounded-lg p-8 text-center">
           <h3 className="text-2xl font-bold mb-4 text-purple-400">Connect Wallet to Start</h3>
@@ -173,7 +184,7 @@ export const Home: FC = () => {
             </div>
           )}
 
-          {/* Navigation Tabs - CLEANED */}
+          {/* Navigation Tabs */}
           <div className="flex flex-wrap gap-2">
             {[
               { key: 'active', label: `Active Games (${activeGames.length})`, icon: '▶' },
@@ -224,7 +235,7 @@ export const Home: FC = () => {
         </>
       )}
 
-      {/* Platform Information - CLEANED */}
+      {/* Platform Information */}
       <div className="bg-gradient-to-r from-purple-900/30 to-blue-900/30 rounded-xl p-6 border border-purple-500/30">
         <h3 className="text-xl font-bold mb-4 text-purple-300">How BattleFlip Works</h3>
         <div className="grid md:grid-cols-2 gap-6 text-sm">
@@ -262,6 +273,16 @@ export const Home: FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Debug Info (only in development) */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-600">
+          <h4 className="text-sm font-bold text-gray-400 mb-2">🔧 Debug Console</h4>
+          <p className="text-xs text-gray-500">
+            Open browser console and use: <code className="bg-gray-700 px-1 rounded">await window.blockchainService.debugPlatformState()</code>
+          </p>
+        </div>
+      )}
     </div>
   );
 };
