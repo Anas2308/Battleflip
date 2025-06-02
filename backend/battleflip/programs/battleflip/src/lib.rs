@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::clock::Clock;
 use anchor_lang::system_program;
 
-declare_id!("mWishTAXRe8gdGcqF6VqYW3JL1CkHU5waMfkM9VTVmg");
+declare_id!("FdMcUSR2SwzBGEGrxMYvRx56iHn3GprjkdLCDzD9engk");
 
 pub const PLATFORM_FEE_PERCENTAGE: u8 = 5;
 pub const CREATOR_REFUND_PERCENTAGE: u8 = 95;
@@ -44,6 +44,14 @@ pub mod battleflip {
             GameError::BetTooLow
         );
 
+        // CRITICAL FIX: Update platform BEFORE account creation
+        let platform = &mut ctx.accounts.platform;
+        let game_number = platform.total_games;
+        platform.active_games += 1;
+        platform.total_games += 1;
+
+        msg!("Creating game #{} with lobby name: {}", game_number, lobby_name);
+
         let bet_amount_copy = bet_amount;
         let clock = Clock::get()?;
         let creator_key = ctx.accounts.creator.key();
@@ -58,11 +66,6 @@ pub mod battleflip {
         );
         system_program::transfer(cpi_context, bet_amount_copy)?;
 
-        // CRITICAL FIX: Update platform BEFORE setting game state
-        let platform = &mut ctx.accounts.platform;
-        platform.active_games += 1;
-        platform.total_games += 1; // ← FIXED: This was missing!
-
         // Now set game state
         let game = &mut ctx.accounts.game;
         game.creator = creator_key;
@@ -75,7 +78,7 @@ pub mod battleflip {
         game.result = None;
         game.player_choice = None;
 
-        msg!("Game created: {} (Game #{} total)", game.lobby_name, platform.total_games);
+        msg!("Game created successfully!");
         Ok(())
     }
 
@@ -141,7 +144,7 @@ pub mod battleflip {
         let random_value = (clock.unix_timestamp as u64)
             .wrapping_mul(clock.slot)
             .wrapping_add(bet_amount)
-            .wrapping_add(player_key.to_bytes()[0] as u64) // Add some entropy from player key
+            .wrapping_add(player_key.to_bytes()[0] as u64)
             % 2;
         
         let result = if random_value == 0 {
@@ -278,7 +281,6 @@ pub struct InitializePlatform<'info> {
     pub system_program: Program<'info, System>,
 }
 
-// FIXED: Simple PDA structure without Clock in attributes
 #[derive(Accounts)]
 #[instruction(lobby_name: String, bet_amount: u64)]
 pub struct CreateGame<'info> {
