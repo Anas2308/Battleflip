@@ -79,7 +79,6 @@ export class BlockchainService {
     }
   }
 
-  // FIXED: Korrekte PDA-Berechnung die funktioniert
   async createGame(
     wallet: WalletContextState,
     lobbyName: string,
@@ -91,199 +90,71 @@ export class BlockchainService {
     }
 
     try {
-      // Das Problem: Der Smart Contract verwendet eine andere PDA-Berechnung
-      // als die IDL angibt. Wir müssen die funktionierende PDA verwenden.
+      // ✅ FIXED: Hole aktuellen Platform-State
+      const platformData = await program.account.platform.fetch(PLATFORM_PDA);
+      const currentTotalGames = platformData.totalGames;
       
-      // LÖSUNG: Generiere eine eindeutige PDA basierend auf dem existierenden Muster
-      // aber mit einem Twist für Eindeutigkeit
-      
-      const timestamp = Date.now();
-      const uniqueGameName = `${lobbyName}_${timestamp}`;
-      
-      console.log('🎮 Creating game with unique identifier:');
-      console.log('  Original name:', lobbyName);
-      console.log('  Unique name:', uniqueGameName);
+      console.log('🎮 Creating game with PDA calculation:');
+      console.log('  Platform PDA:', PLATFORM_PDA.toString());
+      console.log('  Current total_games:', currentTotalGames.toString());
       console.log('  Creator:', wallet.publicKey.toString());
-
-      // VERSCHIEDENE ANSÄTZE VERSUCHEN:
+      console.log('  Lobby name:', lobbyName);
       
-      // Ansatz 1: Standard PDA Berechnung basierend auf dem funktionierenden Muster
-      const approaches = [
-        {
-          name: 'Timestamp-based unique',
-          getSeeds: () => [
-            Buffer.from('game'),
-            wallet.publicKey!.toBuffer(),
-            Buffer.from(uniqueGameName)
-          ]
-        },
-        {
-          name: 'Creator + Lobby only',
-          getSeeds: () => [
-            Buffer.from('game'),
-            wallet.publicKey!.toBuffer(), 
-            Buffer.from(lobbyName)
-          ]
-        },
-        {
-          name: 'Simple lobby + random',
-          getSeeds: () => [
-            Buffer.from('game'),
-            Buffer.from(lobbyName + '_' + Math.random().toString(36).substr(2, 9))
-          ]
-        },
-        {
-          name: 'Platform + Creator + Unique Lobby',
-          getSeeds: () => [
-            Buffer.from('game'),
-            PLATFORM_PDA.toBuffer(),
-            wallet.publicKey!.toBuffer(),
-            Buffer.from(uniqueGameName)
-          ]
-        },
-        {
-          name: 'Game + Timestamp',
-          getSeeds: () => [
-            Buffer.from('game'),
-            new BN(timestamp).toArrayLike(Buffer, 'le', 8),
-            wallet.publicKey!.toBuffer(),
-            Buffer.from(lobbyName)
-          ]
-        }
-      ];
-
-      for (const approach of approaches) {
-        try {
-          console.log(`🧪 Trying approach: ${approach.name}`);
-          
-          const seeds = approach.getSeeds();
-          const [gamePDA] = PublicKey.findProgramAddressSync(seeds, PROGRAM_ID);
-          
-          console.log(`  Generated PDA: ${gamePDA.toString()}`);
-
-          // Prüfe ob diese PDA bereits existiert
-          const existingAccount = await this.connection.getAccountInfo(gamePDA);
-          if (existingAccount) {
-            console.log(`  ❌ PDA already exists, skipping...`);
-            continue;
-          }
-
-          console.log(`  ✅ PDA is unique, attempting transaction...`);
-
-          const betAmountLamports = new BN(betAmountSol * LAMPORTS_PER_SOL);
-
-          const tx = await program.methods
-            .createGame(lobbyName, betAmountLamports)
-            .accounts({
-              game: gamePDA,
-              platform: PLATFORM_PDA,
-              creator: wallet.publicKey,
-              systemProgram: SystemProgram.programId,
-            })
-            .rpc();
-
-          console.log('✅ Game created successfully!');
-          console.log('  Approach:', approach.name);
-          console.log('  Transaction:', tx);
-          console.log('  Game PDA:', gamePDA.toString());
-          
-          return { success: true, gameId: gamePDA.toString() };
-
-        } catch (error: any) {
-          console.log(`❌ Approach "${approach.name}" failed:`, error.message);
-          continue;
-        }
+      // ✅ FIXED: Korrekte PDA-Berechnung wie im Contract
+      const [gamePDA] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from('game'),                           // "game"
+          PLATFORM_PDA.toBuffer(),                       // platform PDA
+          currentTotalGames.toArrayLike(Buffer, 'le', 8), // total_games als u64 LE
+          wallet.publicKey.toBuffer(),                   // creator
+          Buffer.from(lobbyName)                         // lobby_name
+        ],
+        PROGRAM_ID
+      );
+      
+      console.log('  Generated Game PDA:', gamePDA.toString());
+      
+      // ✅ Race Condition Check
+      const existingAccount = await this.connection.getAccountInfo(gamePDA);
+      if (existingAccount) {
+        return { 
+          success: false, 
+          error: 'Game with this name already exists. Try a different name.' 
+        };
       }
+      
+      const betAmountLamports = new BN(betAmountSol * LAMPORTS_PER_SOL);
+      
+      const tx = await program.methods
+        .createGame(lobbyName, betAmountLamports)
+        .accounts({
+          game: gamePDA,
+          platform: PLATFORM_PDA,
+          creator: wallet.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc({ commitment: 'confirmed' });
 
-      // Wenn alle Ansätze fehlschlagen, versuche die "hardcoded" PDA von vorhin
-      // aber mit verschiedenen Lobby Namen
-      return await this.tryHardcodedPDAWithVariations(wallet, lobbyName, betAmountSol);
+      console.log('✅ Game created successfully!');
+      console.log('  Transaction:', tx);
+      console.log('  Game PDA:', gamePDA.toString());
+      
+      return { success: true, gameId: gamePDA.toString() };
 
     } catch (error: any) {
-      console.error('❌ All creation attempts failed:', error);
+      console.error('❌ Error creating game:', error);
+      
+      if (error.message.includes('ConstraintSeeds')) {
+        return { 
+          success: false, 
+          error: 'PDA calculation mismatch. Platform may be out of sync. Please refresh and try again.' 
+        };
+      }
+      
       return { success: false, error: error.message || 'Failed to create game' };
     }
   }
 
-  // Fallback: Versuche die hardcoded PDA mit Variationen
-  private async tryHardcodedPDAWithVariations(
-    wallet: WalletContextState,
-    lobbyName: string,
-    betAmountSol: number
-  ): Promise<{ success: boolean; gameId?: string; error?: string }> {
-    
-    console.log('🔄 FALLBACK: Trying hardcoded PDA with variations...');
-    
-    const program = this.program;
-    if (!program || !wallet.publicKey) {
-      return { success: false, error: 'No program' };
-    }
-
-    // Verschiedene Lobby-Namen testen
-    const lobbyVariations = [
-      `${lobbyName}_${Date.now()}`,
-      `${lobbyName}_v2`,
-      `${lobbyName}_${Math.random().toString(36).substr(2, 5)}`,
-      `game_${Date.now()}`,
-      `lobby_${Math.random().toString(36).substr(2, 8)}`
-    ];
-
-    for (const variation of lobbyVariations) {
-      try {
-        console.log(`🎲 Trying lobby variation: ${variation}`);
-        
-        // Die PDA, die funktioniert hat, aber mit neuem Namen
-        const hardcodedPDAs = [
-          '8qoHBGdVeF3FrUSVj9cSs6A6QqtDmoNSmu8oNTkckVFx',
-          // Weitere bekannte PDAs hier hinzufügen wenn verfügbar
-        ];
-
-        // Teste ob eine der bekannten PDAs mit diesem Namen funktioniert
-        for (const pdaString of hardcodedPDAs) {
-          const gamePDA = new PublicKey(pdaString);
-          
-          // Prüfe ob PDA frei ist
-          const existingAccount = await this.connection.getAccountInfo(gamePDA);
-          if (existingAccount) {
-            console.log(`  ❌ PDA ${pdaString} is occupied`);
-            continue;
-          }
-
-          console.log(`  🎯 Trying PDA: ${pdaString} with name: ${variation}`);
-
-          try {
-            const betAmountLamports = new BN(betAmountSol * LAMPORTS_PER_SOL);
-
-            const tx = await program.methods
-              .createGame(variation, betAmountLamports)
-              .accounts({
-                game: gamePDA,
-                platform: PLATFORM_PDA,
-                creator: wallet.publicKey,
-                systemProgram: SystemProgram.programId,
-              })
-              .rpc();
-
-            console.log('✅ Hardcoded PDA approach successful!');
-            console.log('  Lobby name used:', variation);
-            console.log('  Transaction:', tx);
-            return { success: true, gameId: gamePDA.toString() };
-
-          } catch (txError: any) {
-            console.log(`  ❌ Transaction failed for ${pdaString}:`, txError.message);
-          }
-        }
-
-      } catch (variationError: any) {
-        console.log(`❌ Variation "${variation}" failed:`, variationError.message);
-        continue;
-      }
-    }
-
-    return { success: false, error: 'All PDA variations failed' };
-  }
-
-  // Rest der Methoden bleiben gleich...
   async joinGame(
     wallet: WalletContextState,
     gamePDA: PublicKey
@@ -592,6 +463,57 @@ export class BlockchainService {
 
     } catch (error) {
       console.error('❌ Error in debug:', error);
+    }
+  }
+
+  // Additional debug function for game creation
+  async debugGameCreation(lobbyName: string, wallet: WalletContextState): Promise<void> {
+    if (!this.program || !wallet.publicKey) return;
+    
+    try {
+      console.log('🔍 DEBUG: Game Creation Analysis');
+      console.log('=====================================');
+      
+      // 1. Platform State
+      const platformData = await this.program.account.platform.fetch(PLATFORM_PDA);
+      console.log('📊 Platform State:');
+      console.log('  Authority:', platformData.authority.toString());
+      console.log('  Fee Wallet:', platformData.feeWallet.toString());
+      console.log('  Total Games:', platformData.totalGames.toString());
+      console.log('  Active Games:', platformData.activeGames.toString());
+      
+      // 2. PDA Calculation
+      const [calculatedPDA] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from('game'),
+          PLATFORM_PDA.toBuffer(),
+          platformData.totalGames.toArrayLike(Buffer, 'le', 8),
+          wallet.publicKey.toBuffer(),
+          Buffer.from(lobbyName)
+        ],
+        PROGRAM_ID
+      );
+      
+      console.log('🎯 PDA Calculation:');
+      console.log('  Expected PDA:', calculatedPDA.toString());
+      console.log('  Seeds:');
+      console.log('    - game: "game"');
+      console.log('    - platform:', PLATFORM_PDA.toString());
+      console.log('    - total_games:', platformData.totalGames.toString());
+      console.log('    - creator:', wallet.publicKey.toString());
+      console.log('    - lobby_name:', lobbyName);
+      
+      // 3. Account Check
+      const accountInfo = await this.connection.getAccountInfo(calculatedPDA);
+      console.log('📁 Account Status:');
+      console.log('  Exists:', accountInfo !== null);
+      if (accountInfo) {
+        console.log('  Data length:', accountInfo.data.length);
+        console.log('  Owner:', accountInfo.owner.toString());
+      }
+      
+    } catch (error) {
+      console.error('❌ Debug error:', error);
     }
   }
 }
