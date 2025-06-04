@@ -6,13 +6,10 @@ export const WalletConnect: FC = () => {
   const { publicKey } = useWallet();
 
   return (
-    <div className="flex items-center gap-4">
-      <WalletMultiButton className="!bg-purple-600 hover:!bg-purple-700 transition-colors" />
-      {publicKey && (
-        <div className="text-sm text-gray-400">
-          Connected: {publicKey.toBase58().slice(0, 4)}...{publicKey.toBase58().slice(-4)}
-        </div>
-      )}
+    <div className="flex items-center">
+      <WalletMultiButton 
+        className="!bg-white !text-black !border !border-gray-300 !rounded-lg !px-6 !py-3 !font-medium hover:!bg-gray-50 transition-colors !shadow-none" 
+      />
     </div>
   );
 };
