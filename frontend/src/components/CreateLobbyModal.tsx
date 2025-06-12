@@ -12,9 +12,7 @@ interface Props {
 export const CreateLobbyModal: FC<Props> = ({ 
   isOpen, 
   onClose, 
-  onCreateGame, 
-  minBetSol, 
-  solEurRate,
+  onCreateGame,
   loading 
 }) => {
   const [lobbyName, setLobbyName] = useState('');

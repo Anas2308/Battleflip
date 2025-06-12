@@ -1,4 +1,5 @@
 import type { FinishedGame } from '../types';
+import { calculateFees } from '../types';
 
 const STORAGE_KEY = 'battleflip_finished_games';
 const ACTIVE_GAMES_KEY = 'battleflip_active_games_snapshot';
@@ -105,6 +106,10 @@ export const processDetectedFinishedGames = (
   const newFinishedGames: FinishedGame[] = [];
 
   detectedGames.forEach(game => {
+    // Calculate pot amount using the fee calculation
+    const feeCalc = calculateFees(game.betAmount);
+    const totalPotAmount = feeCalc.totalPot; // Total pot from both players
+    
     // Create finished game with simulated result
     // Since we can't get the actual result from closed accounts,
     // we'll create a placeholder that shows it was completed
@@ -113,7 +118,8 @@ export const processDetectedFinishedGames = (
       creator: game.creator,
       player: game.player || 'Unknown', // Fallback if player not available
       lobbyName: game.lobbyName,
-      betAmount: game.betAmount * 2, // Total pot
+      betAmount: game.betAmount * 2, // Total original bet from both players
+      potAmount: totalPotAmount, // Total pot amount (97.5% of both bets)
       betAmountEur: (game.betAmount * 2) * solEurRate,
       winner: 'Unknown', // Can't determine winner from closed account
       result: Math.random() < 0.5 ? 'heads' : 'tails', // Random for display
@@ -160,12 +166,16 @@ export const createFinishedGameFromResult = (
   result: 'heads' | 'tails',
   winner: string
 ): FinishedGame => {
+  // Calculate pot amount using fee calculation
+  const feeCalc = calculateFees(betAmount);
+  
   return {
     id: gameId,
     creator,
     player,
     lobbyName,
-    betAmount: betAmount * 2, // Total pot (both bets)
+    betAmount: betAmount * 2, // Total bet from both players
+    potAmount: feeCalc.totalPot, // Total pot amount (97.5% of both bets)
     betAmountEur: 0, // Will be calculated later
     winner,
     result,

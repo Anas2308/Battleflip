@@ -5,6 +5,7 @@ import { useModals } from '../hooks/useModals';
 import { HowToPlayModal } from '../components/HowToPlayModal';
 import { CreateLobbyModal } from '../components/CreateLobbyModal';
 import { CoinFlipModal } from '../components/CoinFlipModal';
+import { calculateFees } from '../types';
 
 export const Home: FC = () => {
   const { connected, publicKey } = useWallet();
@@ -51,15 +52,7 @@ export const Home: FC = () => {
     ? finishedGames.filter(game => 
         publicKey && (game.creator === publicKey.toString() || game.player === publicKey.toString())
       )
-    : finishedGames; // Show ALL games when filter is off
-
-  // DEBUG: Add this to see what's happening
-  console.log('🎯 Finished Games Debug:', {
-    totalFinishedGames: finishedGames.length,
-    filteredFinishedGames: filteredFinishedGames.length,
-    showMyGamesOnly,
-    userWallet: publicKey?.toString().slice(0, 8)
-  });
+    : finishedGames;
 
   const handleCreateGame = async (lobbyName: string, betAmount: number): Promise<boolean> => {
     console.log('🎯 Creating game:', { lobbyName, betAmount });
@@ -81,12 +74,14 @@ export const Home: FC = () => {
 
     console.log('🎯 Joining game:', game);
 
-    // Open coin flip modal immediately
+    // Open coin flip modal immediately with correct pot calculation
+    const totalPotAfterJoin = game.potAmount * 2; // Both players' pot contributions
+    
     openCoinFlip({
       gameId: game.id,
       lobbyName: game.lobbyName,
       betAmount: game.betAmount,
-      totalPot: game.betAmount * 2,
+      totalPot: totalPotAfterJoin,
       isResume: false
     });
   };
@@ -105,7 +100,7 @@ export const Home: FC = () => {
       gameId: game.id,
       lobbyName: game.lobbyName,
       betAmount: game.betAmount,
-      totalPot: game.betAmount * 2,
+      totalPot: game.totalPot, // Already calculated total pot
       isResume: true
     });
   };
@@ -117,16 +112,16 @@ export const Home: FC = () => {
     const game = activeGames.find(g => g.id === gameId);
     if (!game) return;
 
-    // Confirm deletion
-    const refundAmount = (game.betAmount * 0.95).toFixed(4);
-    const feeAmount = (game.betAmount * 0.05).toFixed(4);
+    // Calculate correct refund amount (pot amount, since fee was already paid)
+    const feeCalc = calculateFees(game.betAmount);
+    const refundAmount = feeCalc.potAmount; // User gets back their pot contribution
     
     const confirmed = confirm(
       `🗑️ DELETE GAME CONFIRMATION\n\n` +
       `Game: "${game.lobbyName}"\n` +
       `Original Bet: ${game.betAmount.toFixed(4)} SOL\n\n` +
-      `💰 You will receive: ${refundAmount} SOL (95%)\n` +
-      `💸 Platform fee: ${feeAmount} SOL (5%)\n\n` +
+      `💰 You will receive: ${refundAmount.toFixed(4)} SOL\n` +
+      `(You already paid the ${feeCalc.feeAmount.toFixed(4)} SOL platform fee)\n\n` +
       `Are you sure you want to delete this game?`
     );
 
@@ -168,7 +163,7 @@ export const Home: FC = () => {
         // Simulate result (in real implementation, this comes from blockchain)
         const result = Math.random() < 0.5 ? 'heads' : 'tails';
         const won = choice === result;
-        const winAmount = won ? coinFlipData.totalPot * 0.95 : 0;
+        const winAmount = won ? coinFlipData.totalPot : 0;
 
         showResult({
           choice,
@@ -189,6 +184,10 @@ export const Home: FC = () => {
     return `${address.slice(0, 4)}...${address.slice(-4)}`;
   };
 
+  const formatSol = (amount: number) => {
+    return amount.toFixed(4);
+  };
+
   return (
     <>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
@@ -206,10 +205,18 @@ export const Home: FC = () => {
           <p style={{
             fontSize: '18px',
             color: '#6b7280',
+            marginBottom: '8px',
+            margin: '0 0 8px 0'
+          }}>
+            Flip a coin and win SOL! Create a lobby and compete against other players.
+          </p>
+          <p style={{
+            fontSize: '14px',
+            color: '#9ca3af',
             marginBottom: '24px',
             margin: '0 0 24px 0'
           }}>
-            Flip a coin and win SOL! Create a lobby and compete against other players.
+            💰 97.5% goes to winner pot • 2.5% platform fee
           </p>
           
           <div style={{
@@ -324,6 +331,9 @@ export const Home: FC = () => {
                         (game.creator === publicKey.toString() || game.player === publicKey.toString());
                       const canDelete = isOwnGame && game.status === 'active'; // ✅ CAN DELETE OWN ACTIVE GAMES
                       
+                      // Calculate fee information for display
+                      const feeCalc = calculateFees(game.betAmount);
+                      
                       return (
                         <div
                           key={game.id}
@@ -377,10 +387,21 @@ export const Home: FC = () => {
                                 display: 'flex',
                                 gap: '16px',
                                 fontSize: '14px',
-                                color: '#6b7280'
+                                color: '#6b7280',
+                                marginBottom: '4px'
                               }}>
-                                <span>Bet: <strong style={{ color: '#059669' }}>{game.betAmount.toFixed(4)} SOL</strong></span>
-                                <span>Total Pot: <strong style={{ color: '#059669' }}>{(game.betAmount * 2).toFixed(4)} SOL</strong></span>
+                                <span>Bet: <strong style={{ color: '#059669' }}>{formatSol(game.betAmount)} SOL</strong></span>
+                                <span>Winner Pot: <strong style={{ color: '#059669' }}>
+                                  {isInProgress ? formatSol(game.totalPot) : formatSol(feeCalc.totalPot)} SOL
+                                </strong></span>
+                              </div>
+
+                              {/* Fee information */}
+                              <div style={{
+                                fontSize: '12px',
+                                color: '#9ca3af'
+                              }}>
+                                💰 {formatSol(feeCalc.potAmount)} SOL to pot • 💸 {formatSol(feeCalc.feeAmount)} SOL platform fee
                               </div>
 
                               {isInProgress && game.player && (
@@ -636,7 +657,9 @@ export const Home: FC = () => {
                                 fontSize: '14px',
                                 color: '#6b7280'
                               }}>
-                                <span>Total Bet: <strong style={{ color: '#059669' }}>{game.betAmount.toFixed(4)} SOL</strong></span>
+                                <span>Winner Pot: <strong style={{ color: '#059669' }}>
+                                  {game.potAmount ? formatSol(game.potAmount) : formatSol(game.betAmount * 0.975)} SOL
+                                </strong></span>
                                 <span>Result: <strong>{game.result === 'heads' ? '👑 HEADS' : '🔥 TAILS'}</strong></span>
                               </div>
                             </div>

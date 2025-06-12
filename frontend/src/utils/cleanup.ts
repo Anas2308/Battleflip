@@ -1,6 +1,5 @@
 // frontend/src/utils/cleanup.ts
 import { Connection, PublicKey, clusterApiUrl } from '@solana/web3.js';
-import { Program, AnchorProvider } from '@coral-xyz/anchor';
 
 const PROGRAM_ID = new PublicKey('mWishTAXRe8gdGcqF6VqYW3JL1CkHU5waMfkM9VTVmg');
 

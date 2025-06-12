@@ -15,6 +15,10 @@ export const [PLATFORM_PDA] = PublicKey.findProgramAddressSync(
   PROGRAM_ID
 );
 
+// Fee calculation constants
+export const POT_PERCENTAGE = 97.5; // 97.5% goes to pot
+export const FEE_PERCENTAGE = 2.5;  // 2.5% goes to platform
+
 export class BlockchainService {
   private connection: Connection;
   private program: any = null;
@@ -79,6 +83,21 @@ export class BlockchainService {
     }
   }
 
+  // Calculate pot and fee amounts
+  private calculateAmounts(betAmountSol: number) {
+    const betAmountLamports = betAmountSol * LAMPORTS_PER_SOL;
+    const potAmountLamports = Math.floor(betAmountLamports * POT_PERCENTAGE / 100);
+    const feeAmountLamports = betAmountLamports - potAmountLamports; // Remainder to avoid rounding issues
+    
+    return {
+      betAmountLamports,
+      potAmountLamports,
+      feeAmountLamports,
+      potAmountSol: potAmountLamports / LAMPORTS_PER_SOL,
+      feeAmountSol: feeAmountLamports / LAMPORTS_PER_SOL
+    };
+  }
+
   async createGame(
     wallet: WalletContextState,
     lobbyName: string,
@@ -90,31 +109,30 @@ export class BlockchainService {
     }
 
     try {
-      // ✅ FIXED: Hole aktuellen Platform-State
+      const amounts = this.calculateAmounts(betAmountSol);
+      
+      console.log('🎮 Creating game with fee split:');
+      console.log(`  User pays: ${betAmountSol} SOL`);
+      console.log(`  Pot gets: ${amounts.potAmountSol.toFixed(6)} SOL (${POT_PERCENTAGE}%)`);
+      console.log(`  Fee wallet: ${amounts.feeAmountSol.toFixed(6)} SOL (${FEE_PERCENTAGE}%)`);
+      
+      // Get platform state for PDA calculation
       const platformData = await program.account.platform.fetch(PLATFORM_PDA);
       const currentTotalGames = platformData.totalGames;
       
-      console.log('🎮 Creating game with PDA calculation:');
-      console.log('  Platform PDA:', PLATFORM_PDA.toString());
-      console.log('  Current total_games:', currentTotalGames.toString());
-      console.log('  Creator:', wallet.publicKey.toString());
-      console.log('  Lobby name:', lobbyName);
-      
-      // ✅ FIXED: Korrekte PDA-Berechnung wie im Contract
+      // Calculate game PDA
       const [gamePDA] = PublicKey.findProgramAddressSync(
         [
-          Buffer.from('game'),                           // "game"
-          PLATFORM_PDA.toBuffer(),                       // platform PDA
-          currentTotalGames.toArrayLike(Buffer, 'le', 8), // total_games als u64 LE
-          wallet.publicKey.toBuffer(),                   // creator
-          Buffer.from(lobbyName)                         // lobby_name
+          Buffer.from('game'),
+          PLATFORM_PDA.toBuffer(),
+          currentTotalGames.toArrayLike(Buffer, 'le', 8),
+          wallet.publicKey.toBuffer(),
+          Buffer.from(lobbyName)
         ],
         PROGRAM_ID
       );
       
-      console.log('  Generated Game PDA:', gamePDA.toString());
-      
-      // ✅ Race Condition Check
+      // Check for race condition
       const existingAccount = await this.connection.getAccountInfo(gamePDA);
       if (existingAccount) {
         return { 
@@ -123,14 +141,15 @@ export class BlockchainService {
         };
       }
       
-      const betAmountLamports = new BN(betAmountSol * LAMPORTS_PER_SOL);
+      const betAmountLamportsBN = new BN(amounts.betAmountLamports);
       
       const tx = await program.methods
-        .createGame(lobbyName, betAmountLamports)
+        .createGame(lobbyName, betAmountLamportsBN)
         .accounts({
           game: gamePDA,
           platform: PLATFORM_PDA,
           creator: wallet.publicKey,
+          feeWallet: FEE_WALLET,
           systemProgram: SystemProgram.programId,
         })
         .rpc({ commitment: 'confirmed' });
@@ -143,14 +162,6 @@ export class BlockchainService {
 
     } catch (error: any) {
       console.error('❌ Error creating game:', error);
-      
-      if (error.message.includes('ConstraintSeeds')) {
-        return { 
-          success: false, 
-          error: 'PDA calculation mismatch. Platform may be out of sync. Please refresh and try again.' 
-        };
-      }
-      
       return { success: false, error: error.message || 'Failed to create game' };
     }
   }
@@ -165,13 +176,23 @@ export class BlockchainService {
     }
 
     try {
-      console.log('👤 Joining game:', gamePDA.toString());
+      // Get game data to know the bet amount
+      const gameData = await program.account.game.fetch(gamePDA);
+      const betAmountLamports = gameData.betAmount.toNumber();
+      const amounts = this.calculateAmounts(betAmountLamports / LAMPORTS_PER_SOL);
+      
+      console.log('👤 Joining game with fee split:');
+      console.log(`  User pays: ${betAmountLamports / LAMPORTS_PER_SOL} SOL`);
+      console.log(`  Pot gets: ${amounts.potAmountSol.toFixed(6)} SOL (${POT_PERCENTAGE}%)`);
+      console.log(`  Fee wallet: ${amounts.feeAmountSol.toFixed(6)} SOL (${FEE_PERCENTAGE}%)`);
 
       const tx = await program.methods
         .joinGame()
         .accounts({
           game: gamePDA,
           player: wallet.publicKey,
+          platform: PLATFORM_PDA,
+          feeWallet: FEE_WALLET,
           systemProgram: SystemProgram.programId,
         })
         .rpc();
@@ -233,8 +254,6 @@ export class BlockchainService {
         .accounts({
           game: gamePDA,
           winner: wallet.publicKey,
-          feeWallet: FEE_WALLET,
-          platform: PLATFORM_PDA,
           systemProgram: SystemProgram.programId,
         })
         .rpc();
@@ -265,7 +284,6 @@ export class BlockchainService {
           game: gamePDA,
           platform: PLATFORM_PDA,
           creator: wallet.publicKey,
-          feeWallet: FEE_WALLET,
           systemProgram: SystemProgram.programId,
         })
         .rpc();
@@ -288,39 +306,31 @@ export class BlockchainService {
         commitment: 'confirmed',
         encoding: 'base64'
       });
-      console.log(`📊 Found ${allAccounts.length} total program accounts`);
 
       const games: GameLobby[] = [];
       
       for (const account of allAccounts) {
         try {
-          console.log(`🔍 Checking account: ${account.pubkey.toString()}`);
-          console.log(`   Data length: ${account.account.data.length}`);
-          
           if (account.pubkey.equals(PLATFORM_PDA)) {
-            console.log('⏭️ Skipping platform account:', account.pubkey.toString());
             continue;
           }
 
           const gameData = await this.program.account.game.fetch(account.pubkey);
           
-          console.log('🎮 Successfully decoded game:', {
-            pubkey: account.pubkey.toString(),
-            lobbyName: gameData.lobbyName,
-            status: gameData.status,
-            creator: gameData.creator.toString(),
-            betAmount: gameData.betAmount.toNumber() / LAMPORTS_PER_SOL,
-            createdAt: gameData.createdAt.toNumber()
-          });
-          
           if (gameData.status.active !== undefined || gameData.status.inProgress !== undefined) {
             const status = gameData.status.active !== undefined ? 'active' : 'in_progress';
+            
+            // Calculate amounts
+            const singleBetSol = gameData.betAmount.toNumber() / LAMPORTS_PER_SOL;
+            const amounts = this.calculateAmounts(singleBetSol);
             
             games.push({
               id: account.pubkey.toString(),
               creator: gameData.creator.toString(),
               lobbyName: gameData.lobbyName,
-              betAmount: gameData.betAmount.toNumber() / LAMPORTS_PER_SOL,
+              betAmount: singleBetSol, // Original bet amount for display
+              potAmount: amounts.potAmountSol, // Actual pot amount per player
+              totalPot: status === 'in_progress' ? amounts.potAmountSol * 2 : amounts.potAmountSol, // Total pot
               betAmountEur: 0,
               createdAt: new Date(gameData.createdAt.toNumber() * 1000),
               status: status,
@@ -432,6 +442,28 @@ export class BlockchainService {
       console.error('❌ Error fetching game data:', error);
       return null;
     }
+  }
+
+  // Helper method to calculate expected pot for display
+  calculateTotalPot(betAmountSol: number): number {
+    const amounts = this.calculateAmounts(betAmountSol);
+    return amounts.potAmountSol * 2; // Both players' pot contributions
+  }
+
+  // Helper method to calculate winner payout
+  calculateWinnerPayout(betAmountSol: number): number {
+    return this.calculateTotalPot(betAmountSol); // Winner gets the entire pot
+  }
+
+  // Debug function for fee calculations
+  debugFeeCalculation(betAmountSol: number): void {
+    const amounts = this.calculateAmounts(betAmountSol);
+    console.log('💰 Fee Calculation Debug:');
+    console.log(`  Input: ${betAmountSol} SOL`);
+    console.log(`  Pot: ${amounts.potAmountSol.toFixed(6)} SOL (${POT_PERCENTAGE}%)`);
+    console.log(`  Fee: ${amounts.feeAmountSol.toFixed(6)} SOL (${FEE_PERCENTAGE}%)`);
+    console.log(`  Total Pot (2 players): ${(amounts.potAmountSol * 2).toFixed(6)} SOL`);
+    console.log(`  Winner gets: ${(amounts.potAmountSol * 2).toFixed(6)} SOL`);
   }
 
   // Debug function
