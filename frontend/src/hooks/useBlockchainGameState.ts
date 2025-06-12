@@ -10,6 +10,16 @@ import {
   validateLobbyName,
   solToEur
 } from '../utils';
+import { 
+  loadFinishedGames, 
+  saveActiveGamesSnapshot,
+  loadActiveGamesSnapshot,
+  detectFinishedGames,
+  processDetectedFinishedGames,
+  addFinishedGame, 
+  cleanupOldGames,
+  createFinishedGameFromResult 
+} from '../utils/gameHistory';
 
 export const useBlockchainGameState = () => {
   const wallet = useWallet();
@@ -30,6 +40,28 @@ export const useBlockchainGameState = () => {
   const [error, setError] = useState<string | null>(null);
   const [walletBalance, setWalletBalance] = useState<number>(0);
   const [platformInitialized, setPlatformInitialized] = useState<boolean>(false);
+
+  // Load finished games from localStorage on mount
+  useEffect(() => {
+    const loadLocalFinishedGames = () => {
+      try {
+        const localGames = cleanupOldGames(); // This also loads and cleans
+        
+        // Add EUR conversion
+        const gamesWithEur = localGames.map(game => ({
+          ...game,
+          betAmountEur: solToEur(game.betAmount, solEurRate)
+        }));
+        
+        setFinishedGames(gamesWithEur);
+        console.log(`📜 Loaded ${localGames.length} finished games from localStorage`);
+      } catch (error) {
+        console.error('Error loading local finished games:', error);
+      }
+    };
+
+    loadLocalFinishedGames();
+  }, [solEurRate]);
 
   // Initialize when wallet connects
   useEffect(() => {
@@ -52,8 +84,7 @@ export const useBlockchainGameState = () => {
           // Load initial data
           await Promise.all([
             loadActiveGames(),
-            loadGameStats(),
-            loadFinishedGames()
+            loadGameStats()
           ]);
           
         } catch (err) {
@@ -65,7 +96,6 @@ export const useBlockchainGameState = () => {
       } else {
         // Reset state when wallet disconnects
         setActiveGames([]);
-        setFinishedGames([]);
         setGameStats({
           activeGames: 0,
           totalVolume: 0,
@@ -101,9 +131,15 @@ export const useBlockchainGameState = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Load active games from blockchain
+  // Load active games from blockchain and detect finished games
   const loadActiveGames = useCallback(async () => {
     try {
+      console.log('🔍 Loading active games and detecting finished games...');
+      
+      // Get previous snapshot
+      const previousSnapshot = loadActiveGamesSnapshot();
+      
+      // Get current active games
       const games = await blockchainService.getActiveGames();
       
       // Add EUR conversion
@@ -112,26 +148,32 @@ export const useBlockchainGameState = () => {
         betAmountEur: solToEur(game.betAmount, solEurRate)
       }));
       
+      // Detect newly finished games
+      const detectedFinishedGames = detectFinishedGames(gamesWithEur, previousSnapshot);
+      
+      // Process detected finished games
+      if (detectedFinishedGames.length > 0) {
+        console.log(`🎯 Processing ${detectedFinishedGames.length} newly finished games`);
+        const updatedFinishedGames = processDetectedFinishedGames(detectedFinishedGames, solEurRate);
+        
+        // Update finished games state
+        const gamesWithEurFinished = updatedFinishedGames.map(game => ({
+          ...game,
+          betAmountEur: solToEur(game.betAmount, solEurRate)
+        }));
+        setFinishedGames(gamesWithEurFinished);
+      }
+      
+      // Save current games as new snapshot
+      saveActiveGamesSnapshot(gamesWithEur);
+      
+      // Update active games state
       setActiveGames(gamesWithEur);
+      
+      console.log(`✅ Loaded ${gamesWithEur.length} active games, detected ${detectedFinishedGames.length} finished games`);
+      
     } catch (err) {
       console.error('Error loading active games:', err);
-    }
-  }, [solEurRate]);
-
-  // Load finished games from blockchain
-  const loadFinishedGames = useCallback(async () => {
-    try {
-      const games = await blockchainService.getFinishedGames();
-      
-      // Add EUR conversion
-      const gamesWithEur = games.map(game => ({
-        ...game,
-        betAmountEur: solToEur(game.betAmount, solEurRate)
-      }));
-      
-      setFinishedGames(gamesWithEur);
-    } catch (err) {
-      console.error('Error loading finished games:', err);
     }
   }, [solEurRate]);
 
@@ -281,6 +323,13 @@ export const useBlockchainGameState = () => {
       return false;
     }
 
+    // Find the game data before it gets deleted
+    const game = activeGames.find(g => g.id === gameId);
+    if (!game) {
+      setError('Game not found');
+      return false;
+    }
+
     try {
       setLoading(true);
       
@@ -291,23 +340,58 @@ export const useBlockchainGameState = () => {
         // Wait a moment for the transaction to settle
         await new Promise(resolve => setTimeout(resolve, 2000));
         
-        // Check if we won and need to claim
+        // Check the game result (try to get game data before it's closed)
         const gameData = await blockchainService.getGameData(gamePDA);
         
-        if (gameData && gameData.winner && 
+        // Create finished game entry for user participation
+        const winner = gameData?.winner || wallet.publicKey; // Fallback
+        const actualResult = gameData?.result || choice; // Fallback to choice if can't get result
+        const actualResultString = actualResult.heads !== undefined ? 'heads' : 'tails';
+        
+        // Determine who won based on choice vs result
+        const won = choice === actualResultString;
+        const finalWinner = won ? wallet.publicKey.toString() : game.creator;
+        
+        // Create finished game
+        const finishedGame = createFinishedGameFromResult(
+          gameId,
+          game.lobbyName,
+          game.creator,
+          game.player || wallet.publicKey.toString(),
+          game.betAmount,
+          choice,
+          actualResultString,
+          finalWinner
+        );
+        
+        // Add EUR conversion
+        finishedGame.betAmountEur = solToEur(finishedGame.betAmount, solEurRate);
+        
+        // Add to local storage and state
+        const updatedFinishedGames = addFinishedGame(finishedGame);
+        const gamesWithEur = updatedFinishedGames.map(g => ({
+          ...g,
+          betAmountEur: solToEur(g.betAmount, solEurRate)
+        }));
+        setFinishedGames(gamesWithEur);
+        
+        // Try to claim winnings if we won
+        if (won && gameData?.winner && 
             gameData.winner.toString() === wallet.publicKey.toString()) {
-          // We won! Auto-claim the winnings
-          const claimResult = await blockchainService.claimWinnings(wallet, gamePDA);
-          
-          if (claimResult.success) {
-            console.log('Winnings claimed automatically!');
+          console.log('🏆 We won! Attempting to claim winnings...');
+          try {
+            const claimResult = await blockchainService.claimWinnings(wallet, gamePDA);
+            if (claimResult.success) {
+              console.log('✅ Winnings claimed automatically!');
+            }
+          } catch (claimError) {
+            console.log('⚠️ Could not auto-claim winnings:', claimError);
           }
         }
         
         // Refresh all data
         await Promise.all([
           loadActiveGames(),
-          loadFinishedGames(),
           loadGameStats()
         ]);
         
@@ -326,7 +410,7 @@ export const useBlockchainGameState = () => {
     } finally {
       setLoading(false);
     }
-  }, [wallet, loadActiveGames, loadFinishedGames, loadGameStats]);
+  }, [wallet, activeGames, solEurRate, loadActiveGames, loadGameStats]);
 
   // Delete own game lobby
   const deleteGame = useCallback(async (gameId: string): Promise<boolean> => {
@@ -417,24 +501,32 @@ export const useBlockchainGameState = () => {
     try {
       setLoading(true);
       await Promise.all([
-        loadActiveGames(),
-        loadFinishedGames(),
+        loadActiveGames(), // This now also detects finished games
         loadGameStats()
       ]);
       
       const balance = await blockchainService.getWalletBalance(wallet.publicKey);
       setWalletBalance(balance);
+      
+      // Also refresh finished games from localStorage
+      const localGames = loadFinishedGames();
+      const gamesWithEur = localGames.map(game => ({
+        ...game,
+        betAmountEur: solToEur(game.betAmount, solEurRate)
+      }));
+      setFinishedGames(gamesWithEur);
+      
     } catch (err) {
       console.error('Error refreshing data:', err);
     } finally {
       setLoading(false);
     }
-  }, [wallet, loadActiveGames, loadFinishedGames, loadGameStats]);
+  }, [wallet, loadActiveGames, loadGameStats, solEurRate]);
 
-  // Auto-refresh data every 30 seconds when connected
+  // Auto-refresh data every 15 seconds when connected (faster to catch finished games)
   useEffect(() => {
     if (wallet.connected && wallet.publicKey) {
-      const interval = setInterval(refreshData, 30000);
+      const interval = setInterval(refreshData, 15000); // Every 15 seconds
       return () => clearInterval(interval);
     }
   }, [wallet.connected, wallet.publicKey, refreshData]);
