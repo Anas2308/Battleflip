@@ -155,3 +155,4 @@ target/types/
 # IDE
 .vscode/
 .idea/
+.vercel
