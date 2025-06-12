@@ -330,7 +330,7 @@ export class BlockchainService {
               lobbyName: gameData.lobbyName,
               betAmount: singleBetSol, // Original bet amount for display
               potAmount: amounts.potAmountSol, // Actual pot amount per player
-              totalPot: status === 'in_progress' ? amounts.potAmountSol * 2 : amounts.potAmountSol, // Total pot
+              totalPot: amounts.potAmountSol * 2, // ✅ FIXED: Always total pot from both players
               betAmountEur: 0,
               createdAt: new Date(gameData.createdAt.toNumber() * 1000),
               status: status,
@@ -444,13 +444,13 @@ export class BlockchainService {
     }
   }
 
-  // Helper method to calculate expected pot for display
+  // ✅ FIXED: Calculate total pot correctly
   calculateTotalPot(betAmountSol: number): number {
     const amounts = this.calculateAmounts(betAmountSol);
     return amounts.potAmountSol * 2; // Both players' pot contributions
   }
 
-  // Helper method to calculate winner payout
+  // ✅ FIXED: Winner gets the full pot (no additional fee)
   calculateWinnerPayout(betAmountSol: number): number {
     return this.calculateTotalPot(betAmountSol); // Winner gets the entire pot
   }

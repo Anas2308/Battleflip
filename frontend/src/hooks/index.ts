@@ -1,78 +1,93 @@
-export interface GameLobby {
-  id: string;
-  creator: string;
-  lobbyName: string;
-  betAmount: number; // Original bet amount (what user pays) in SOL
-  potAmount: number; // Amount that goes to pot (97.5% of bet) in SOL
-  totalPot: number;  // Total pot available for winner in SOL
-  betAmountEur: number; // in EUR
-  createdAt: Date;
-  status: 'active' | 'in_progress' | 'finished';
-  player?: string;
-  winner?: string;
-  result?: 'heads' | 'tails';
-  choice?: 'heads' | 'tails';
-}
+import axios from 'axios';
 
-export interface FinishedGame {
-  id: string;
-  creator: string;
-  player: string;
-  lobbyName: string;
-  betAmount: number; // Original total bet amount (both players combined)
-  potAmount: number; // Total pot amount (97.5% of both bets)
-  betAmountEur: number;
-  winner: string;
-  result: 'heads' | 'tails';
-  choice: 'heads' | 'tails';
-  finishedAt: Date;
-}
+// SOL to EUR conversion
+export const getSolToEurRate = async (): Promise<number> => {
+  try {
+    const response = await axios.get(
+      'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=eur'
+    );
+    return response.data.solana.eur;
+  } catch (error) {
+    console.error('Error fetching SOL/EUR rate:', error);
+    // Fallback rate (approximate)
+    return 180; // 1 SOL ≈ 180 EUR (update this periodically)
+  }
+};
 
-export interface UserGameHistory {
-  id: string;
-  role: 'creator' | 'player';
-  opponent: string;
-  lobbyName: string;
-  betAmount: number;
-  potAmount: number;
-  betAmountEur: number;
-  result: 'won' | 'lost';
-  coinResult: 'heads' | 'tails';
-  choice: 'heads' | 'tails';
-  finishedAt: Date;
-}
+export const solToEur = (solAmount: number, rate: number): number => {
+  return solAmount * rate;
+};
 
-export interface GameStats {
-  activeGames: number;
-  totalVolume: number; // Total bet volume (original amounts) in SOL
-  totalVolumeEur: number; // in EUR
-  gamesPlayed: number;
-}
+export const eurToSol = (eurAmount: number, rate: number): number => {
+  return eurAmount / rate;
+};
 
-export type CoinSide = 'heads' | 'tails';
+// FIXED: Minimum bet validation - set to fixed SOL amount
+export const getMinimumBetInSol = async (): Promise<number> => {
+  // Fixed minimum: 0.003 SOL (approximately 0.50€ when SOL = 170€)
+  return 0.003;
+};
 
-// Fee calculation helpers
-export interface FeeCalculation {
-  originalBet: number;    // What user pays (e.g., 1.0 SOL)
-  potAmount: number;      // What goes to pot (0.975 SOL)
-  feeAmount: number;      // What goes to platform (0.025 SOL)
-  totalPot: number;       // Total pot for winner (1.95 SOL from both players)
-}
+export const validateBetAmount = (solAmount: number, minSolAmount: number): boolean => {
+  return solAmount >= minSolAmount;
+};
 
-// Constants
-export const POT_PERCENTAGE = 97.5;  // 97.5% to pot
-export const FEE_PERCENTAGE = 2.5;   // 2.5% to platform
+// Lobby name validation (only A-Z, a-z, 0-9)
+export const validateLobbyName = (name: string): boolean => {
+  const regex = /^[A-Za-z0-9]+$/;
+  return regex.test(name) && name.length > 0 && name.length <= 20;
+};
 
-// Helper function to calculate fees
-export const calculateFees = (betAmountSol: number): FeeCalculation => {
-  const potAmount = (betAmountSol * POT_PERCENTAGE) / 100;
-  const feeAmount = betAmountSol - potAmount; // Use remainder to avoid rounding issues
-  const totalPot = potAmount * 2; // Both players contribute to pot
-  
-  return {
-    originalBet: betAmountSol,
-    potAmount,
-    feeAmount,
-    totalPot
-  };
+// Format SOL amount for display
+export const formatSol = (amount: number): string => {
+  return amount.toFixed(4);
+};
+
+// Format EUR amount for display
+export const formatEur = (amount: number): string => {
+  return amount.toFixed(2);
+};
+
+// Generate random coin flip result
+export const flipCoin = (): 'heads' | 'tails' => {
+  return Math.random() < 0.5 ? 'heads' : 'tails';
+};
+
+// ✅ FIXED: Winner gets the full pot, no additional fee deduction
+export const calculateWinnerPayout = (totalPot: number): number => {
+  return totalPot; // Winner gets the entire pot (fees already deducted)
+};
+
+// ✅ FIXED: Platform fee calculation (for reference only)
+export const calculatePlatformFee = (betAmount: number): number => {
+  return betAmount * 0.025; // 2.5% of individual bet
+};
+
+// Truncate wallet address for display
+export const truncateAddress = (address: string, chars: number = 4): string => {
+  return `${address.slice(0, chars)}...${address.slice(-chars)}`;
+};
+
+// Generate unique game ID
+export const generateGameId = (): string => {
+  return Date.now().toString() + Math.random().toString(36).substr(2, 9);
+};
+
+// Time formatting
+export const formatTimeAgo = (date: Date): string => {
+  const now = new Date();
+  const diff = now.getTime() - date.getTime();
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  return `${days}d ago`;
+};
+
+// Validate wallet connection
+export const isWalletConnected = (publicKey: any): boolean => {
+  return publicKey !== null && publicKey !== undefined;
 };

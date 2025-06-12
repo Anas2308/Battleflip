@@ -4,8 +4,8 @@ use anchor_lang::system_program;
 
 declare_id!("mWishTAXRe8gdGcqF6VqYW3JL1CkHU5waMfkM9VTVmg");
 
-pub const PLATFORM_FEE_PERCENTAGE: u8 = 5;
-pub const CREATOR_REFUND_PERCENTAGE: u8 = 95;
+pub const PLATFORM_FEE_PERCENTAGE: u8 = 25; // 2.5% (25/1000)
+pub const POT_PERCENTAGE: u8 = 975; // 97.5% (975/1000)
 pub const MINIMUM_BET_LAMPORTS: u64 = 3_000_000; // ~0.003 SOL
 pub const LOBBY_EXPIRY_TIME: i64 = 86400; // 24 hours in seconds
 
@@ -44,11 +44,14 @@ pub mod battleflip {
             GameError::BetTooLow
         );
 
-        let bet_amount_copy = bet_amount;
         let clock = Clock::get()?;
         let creator_key = ctx.accounts.creator.key();
 
-        // Transfer SOL from creator to game account
+        // Calculate fee split: 97.5% to pot, 2.5% to fee wallet
+        let pot_amount = (bet_amount * POT_PERCENTAGE as u64) / 1000;
+        let fee_amount = bet_amount - pot_amount; // Remainder goes to fee to avoid rounding issues
+
+        // Transfer pot amount to game account
         let cpi_context = CpiContext::new(
             ctx.accounts.system_program.to_account_info(),
             system_program::Transfer {
@@ -56,18 +59,29 @@ pub mod battleflip {
                 to: ctx.accounts.game.to_account_info(),
             },
         );
-        system_program::transfer(cpi_context, bet_amount_copy)?;
+        system_program::transfer(cpi_context, pot_amount)?;
 
-        // CRITICAL FIX: Update platform BEFORE setting game state
+        // Transfer fee to fee wallet
+        let fee_cpi_context = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from: ctx.accounts.creator.to_account_info(),
+                to: ctx.accounts.fee_wallet.to_account_info(),
+            },
+        );
+        system_program::transfer(fee_cpi_context, fee_amount)?;
+
+        // Update platform
         let platform = &mut ctx.accounts.platform;
         platform.active_games += 1;
-        platform.total_games += 1; // ← FIXED: This was missing!
+        platform.total_games += 1;
 
-        // Now set game state
+        // Set game state
         let game = &mut ctx.accounts.game;
         game.creator = creator_key;
         game.lobby_name = lobby_name;
-        game.bet_amount = bet_amount_copy;
+        game.bet_amount = bet_amount; // Original bet amount for display
+        game.pot_amount = pot_amount; // Amount actually in the pot
         game.created_at = clock.unix_timestamp;
         game.status = GameStatus::Active;
         game.player = None;
@@ -75,7 +89,7 @@ pub mod battleflip {
         game.result = None;
         game.player_choice = None;
 
-        msg!("Game created: {} (Game #{} total)", game.lobby_name, platform.total_games);
+        msg!("Game created: {} (Bet: {}, Pot: {}, Fee: {})", game.lobby_name, bet_amount, pot_amount, fee_amount);
         Ok(())
     }
 
@@ -83,7 +97,7 @@ pub mod battleflip {
         let clock = Clock::get()?;
         let player_key = ctx.accounts.player.key();
         
-        // Get bet amount before mutable borrow
+        // Get values before mutable borrow
         let bet_amount = ctx.accounts.game.bet_amount;
         let created_at = ctx.accounts.game.created_at;
         let status = ctx.accounts.game.status.clone();
@@ -98,7 +112,11 @@ pub mod battleflip {
             GameError::GameExpired
         );
 
-        // Transfer SOL from player to game account
+        // Calculate fee split for joining player
+        let pot_amount = (bet_amount * POT_PERCENTAGE as u64) / 1000;
+        let fee_amount = bet_amount - pot_amount;
+
+        // Transfer pot amount to game account
         let cpi_context = CpiContext::new(
             ctx.accounts.system_program.to_account_info(),
             system_program::Transfer {
@@ -106,14 +124,24 @@ pub mod battleflip {
                 to: ctx.accounts.game.to_account_info(),
             },
         );
-        system_program::transfer(cpi_context, bet_amount)?;
+        system_program::transfer(cpi_context, pot_amount)?;
 
-        // Now modify game state
+        // Transfer fee to fee wallet
+        let fee_cpi_context = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from: ctx.accounts.player.to_account_info(),
+                to: ctx.accounts.fee_wallet.to_account_info(),
+            },
+        );
+        system_program::transfer(fee_cpi_context, fee_amount)?;
+
+        // Update game state
         let game = &mut ctx.accounts.game;
         game.player = Some(player_key);
         game.status = GameStatus::InProgress;
 
-        msg!("Player joined game: {}", game.lobby_name);
+        msg!("Player joined game: {} (Added Pot: {}, Fee: {})", game.lobby_name, pot_amount, fee_amount);
         Ok(())
     }
 
@@ -124,7 +152,6 @@ pub mod battleflip {
         // Get values before mutable borrow
         let game_status = ctx.accounts.game.status.clone();
         let game_player = ctx.accounts.game.player;
-        let bet_amount = ctx.accounts.game.bet_amount;
         let creator = ctx.accounts.game.creator;
         
         require!(
@@ -137,11 +164,10 @@ pub mod battleflip {
             GameError::NotPlayer
         );
 
-        // Generate pseudo-random result using clock + slot + bet amount
+        // Generate pseudo-random result
         let random_value = (clock.unix_timestamp as u64)
             .wrapping_mul(clock.slot)
-            .wrapping_add(bet_amount)
-            .wrapping_add(player_key.to_bytes()[0] as u64) // Add some entropy from player key
+            .wrapping_add(player_key.to_bytes()[0] as u64)
             % 2;
         
         let result = if random_value == 0 {
@@ -157,7 +183,7 @@ pub mod battleflip {
             creator
         };
 
-        // Now modify state
+        // Update state
         let game = &mut ctx.accounts.game;
         let platform = &mut ctx.accounts.platform;
 
@@ -166,8 +192,8 @@ pub mod battleflip {
         game.winner = Some(winner);
         game.status = GameStatus::Finished;
 
-        // Update platform stats
-        platform.total_volume += bet_amount * 2; // Total pot
+        // Update platform stats (total volume = original bet amounts)
+        platform.total_volume += game.bet_amount * 2; // Both original bets
         platform.active_games -= 1;
 
         msg!(
@@ -182,7 +208,6 @@ pub mod battleflip {
     pub fn claim_winnings(ctx: Context<ClaimWinnings>) -> Result<()> {
         let game_status = ctx.accounts.game.status.clone();
         let game_winner = ctx.accounts.game.winner;
-        let bet_amount = ctx.accounts.game.bet_amount;
         let winner_key = ctx.accounts.winner.key();
         
         require!(
@@ -195,19 +220,16 @@ pub mod battleflip {
             GameError::NotWinner
         );
 
-        let total_pot = bet_amount * 2;
-        let winner_amount = (total_pot * 95) / 100; // 95%
-        let fee_amount = total_pot - winner_amount; // 5%
+        // Winner gets the entire pot (which is already 97.5% of each bet)
+        let game_balance = ctx.accounts.game.to_account_info().lamports();
+        let rent_exempt_amount = Rent::get()?.minimum_balance(ctx.accounts.game.to_account_info().data_len());
+        let winnings = game_balance.saturating_sub(rent_exempt_amount);
 
-        // Transfer winnings to winner
-        **ctx.accounts.game.to_account_info().try_borrow_mut_lamports()? -= winner_amount;
-        **ctx.accounts.winner.to_account_info().try_borrow_mut_lamports()? += winner_amount;
+        // Transfer all winnings to winner
+        **ctx.accounts.game.to_account_info().try_borrow_mut_lamports()? -= winnings;
+        **ctx.accounts.winner.to_account_info().try_borrow_mut_lamports()? += winnings;
 
-        // Transfer fee to platform
-        **ctx.accounts.game.to_account_info().try_borrow_mut_lamports()? -= fee_amount;
-        **ctx.accounts.fee_wallet.to_account_info().try_borrow_mut_lamports()? += fee_amount;
-
-        msg!("Winnings claimed! Winner: {}, Amount: {}", winner_key, winner_amount);
+        msg!("Winnings claimed! Winner: {}, Amount: {}", winner_key, winnings);
         Ok(())
     }
 
@@ -218,7 +240,7 @@ pub mod battleflip {
         // Get values before mutable borrow
         let game_status = ctx.accounts.game.status.clone();
         let game_creator = ctx.accounts.game.creator;
-        let bet_amount = ctx.accounts.game.bet_amount;
+        let pot_amount = ctx.accounts.game.pot_amount;
         let created_at = ctx.accounts.game.created_at;
         let lobby_name = ctx.accounts.game.lobby_name.clone();
         
@@ -232,31 +254,23 @@ pub mod battleflip {
             GameError::NotCreator
         );
 
-        let time_elapsed = clock.unix_timestamp - created_at;
-        let refund_amount = if time_elapsed >= LOBBY_EXPIRY_TIME {
-            // Auto-delete after 24h: 100% refund
-            bet_amount
-        } else {
-            // Manual delete: 95% refund, 5% fee
-            let fee_amount = (bet_amount * 5) / 100;
-            let refund = bet_amount - fee_amount;
-            
-            // Transfer fee to platform
-            **ctx.accounts.game.to_account_info().try_borrow_mut_lamports()? -= fee_amount;
-            **ctx.accounts.fee_wallet.to_account_info().try_borrow_mut_lamports()? += fee_amount;
-            
-            refund
-        };
+        // Refund the pot amount (user already paid the fee, so no additional fee)
+        let refund_amount = pot_amount;
+
+        // Get current game balance and ensure we don't over-withdraw
+        let game_balance = ctx.accounts.game.to_account_info().lamports();
+        let rent_exempt_amount = Rent::get()?.minimum_balance(ctx.accounts.game.to_account_info().data_len());
+        let available_refund = game_balance.saturating_sub(rent_exempt_amount).min(refund_amount);
 
         // Refund to creator
-        **ctx.accounts.game.to_account_info().try_borrow_mut_lamports()? -= refund_amount;
-        **ctx.accounts.creator.to_account_info().try_borrow_mut_lamports()? += refund_amount;
+        **ctx.accounts.game.to_account_info().try_borrow_mut_lamports()? -= available_refund;
+        **ctx.accounts.creator.to_account_info().try_borrow_mut_lamports()? += available_refund;
 
         // Update platform state
         let platform = &mut ctx.accounts.platform;
         platform.active_games -= 1;
 
-        msg!("Game deleted: {}, Refund: {}", lobby_name, refund_amount);
+        msg!("Game deleted: {}, Refund: {}", lobby_name, available_refund);
         Ok(())
     }
 }
@@ -274,11 +288,11 @@ pub struct InitializePlatform<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
     /// CHECK: This is the wallet that receives fees
+    #[account(mut)]
     pub fee_wallet: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
 }
 
-// FIXED: Simple PDA structure without Clock in attributes
 #[derive(Accounts)]
 #[instruction(lobby_name: String, bet_amount: u64)]
 pub struct CreateGame<'info> {
@@ -304,6 +318,12 @@ pub struct CreateGame<'info> {
     pub platform: Account<'info, Platform>,
     #[account(mut)]
     pub creator: Signer<'info>,
+    /// CHECK: This is the fee wallet that receives platform fees
+    #[account(
+        mut,
+        constraint = fee_wallet.key() == platform.fee_wallet
+    )]
+    pub fee_wallet: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -313,6 +333,18 @@ pub struct JoinGame<'info> {
     pub game: Account<'info, Game>,
     #[account(mut)]
     pub player: Signer<'info>,
+    /// CHECK: Platform for fee wallet lookup
+    #[account(
+        seeds = [b"platform"],
+        bump
+    )]
+    pub platform: Account<'info, Platform>,
+    /// CHECK: This is the fee wallet that receives platform fees
+    #[account(
+        mut,
+        constraint = fee_wallet.key() == platform.fee_wallet
+    )]
+    pub fee_wallet: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -340,17 +372,6 @@ pub struct ClaimWinnings<'info> {
     pub game: Account<'info, Game>,
     #[account(mut)]
     pub winner: Signer<'info>,
-    /// CHECK: Platform fee wallet
-    #[account(
-        mut,
-        constraint = fee_wallet.key() == platform.fee_wallet
-    )]
-    pub fee_wallet: AccountInfo<'info>,
-    #[account(
-        seeds = [b"platform"],
-        bump
-    )]
-    pub platform: Account<'info, Platform>,
     pub system_program: Program<'info, System>,
 }
 
@@ -370,12 +391,6 @@ pub struct DeleteGame<'info> {
     pub platform: Account<'info, Platform>,
     #[account(mut)]
     pub creator: Signer<'info>,
-    /// CHECK: Platform fee wallet
-    #[account(
-        mut,
-        constraint = fee_wallet.key() == platform.fee_wallet
-    )]
-    pub fee_wallet: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -395,7 +410,8 @@ pub struct Game {
     pub creator: Pubkey,
     #[max_len(20)]
     pub lobby_name: String,
-    pub bet_amount: u64,
+    pub bet_amount: u64,    // Original bet amount for display
+    pub pot_amount: u64,    // Amount actually in the pot (97.5% of bet)
     pub created_at: i64,
     pub status: GameStatus,
     pub player: Option<Pubkey>,

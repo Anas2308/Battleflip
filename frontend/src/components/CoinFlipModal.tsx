@@ -115,7 +115,7 @@ export const CoinFlipModal: FC<Props> = ({
           }}>
             <span>Your Bet: <strong>{data.betAmount.toFixed(4)} SOL</strong></span>
             <span>Total Pot: <strong style={{ color: '#059669' }}>{data.totalPot.toFixed(4)} SOL</strong></span>
-            <span>Win Amount: <strong style={{ color: '#059669' }}>{(data.totalPot * 0.95).toFixed(4)} SOL</strong></span>
+            <span>Win Amount: <strong style={{ color: '#059669' }}>{data.totalPot.toFixed(4)} SOL</strong></span>
           </div>
         </div>
 
@@ -327,7 +327,7 @@ export const CoinFlipModal: FC<Props> = ({
                   color: '#15803d',
                   margin: '0'
                 }}>
-                  You won {result.winAmount.toFixed(4)} SOL! 💰
+                  You won {data.totalPot.toFixed(4)} SOL! 💰
                 </p>
               ) : (
                 <p style={{

@@ -74,14 +74,12 @@ export const Home: FC = () => {
 
     console.log('🎯 Joining game:', game);
 
-    // Open coin flip modal immediately with correct pot calculation
-    const totalPotAfterJoin = game.potAmount * 2; // Both players' pot contributions
-    
+    // ✅ FIXED: Use correct totalPot directly
     openCoinFlip({
       gameId: game.id,
       lobbyName: game.lobbyName,
       betAmount: game.betAmount,
-      totalPot: totalPotAfterJoin,
+      totalPot: game.totalPot, // ← FIXED: Use totalPot directly!
       isResume: false
     });
   };
@@ -392,7 +390,7 @@ export const Home: FC = () => {
                               }}>
                                 <span>Bet: <strong style={{ color: '#059669' }}>{formatSol(game.betAmount)} SOL</strong></span>
                                 <span>Winner Pot: <strong style={{ color: '#059669' }}>
-                                  {isInProgress ? formatSol(game.totalPot) : formatSol(feeCalc.totalPot)} SOL
+                                  {formatSol(game.totalPot)} SOL
                                 </strong></span>
                               </div>
 

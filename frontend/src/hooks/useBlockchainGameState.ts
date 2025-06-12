@@ -344,8 +344,7 @@ export const useBlockchainGameState = () => {
         const gameData = await blockchainService.getGameData(gamePDA);
         
         // Create finished game entry for user participation
-        const winner = gameData?.winner || wallet.publicKey; // Fallback
-        const actualResult = gameData?.result || choice; // Fallback to choice if can't get result
+                const actualResult = gameData?.result || choice; // Fallback to choice if can't get result
         const actualResultString = actualResult.heads !== undefined ? 'heads' : 'tails';
         
         // Determine who won based on choice vs result
