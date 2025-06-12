@@ -156,3 +156,7 @@ target/types/
 .vscode/
 .idea/
 .vercel
+backend/battleflip/test-ledger/
+backend/battleflip/target/
+backend/battleflip/test-ledger/
+.vercel/
