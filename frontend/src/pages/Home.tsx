@@ -1,287 +1,616 @@
 import { type FC, useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useBlockchainGameState } from '../hooks/useBlockchainGameState';
-import { CreateGame } from '../components/CreateGame';
-import { ActiveGames } from '../components/ActiveGames';
-import { CoinFlip } from '../components/CoinFlip';
-import { FinishedGames } from '../components/FinishedGames';
-import { GameStats } from '../components/GameStats';
-import { ErrorDisplay } from '../components/ErrorDisplay';
 
 export const Home: FC = () => {
-  const { connected } = useWallet();
+  const { connected, publicKey } = useWallet();
   const gameState = useBlockchainGameState();
   const {
     activeGames,
-    finishedGames,
-    gameStats,
-    solEurRate,
-    minBetSol,
     loading,
     error,
-    walletBalance,
-    platformInitialized,
-    createGame,
     joinGame,
-    performCoinFlip,
-    deleteGame,
-    clearError,
-    refreshData,
-    requestDevnetAirdrop,
-    initializePlatform
+    performCoinFlip
   } = gameState;
 
-  const [activeTab, setActiveTab] = useState<'create' | 'active' | 'finished'>('active');
   const [flipGameId, setFlipGameId] = useState<string | null>(null);
+  const [showMyGamesOnly, setShowMyGamesOnly] = useState<boolean>(false);
 
-  // 🛠 DEBUG: Make blockchainService available in browser console
+  // Debug: Make blockchainService available
   useEffect(() => {
-    // Import the blockchainService and make it globally available
     import('../utils/blockchain').then(({ blockchainService }) => {
       (window as any).blockchainService = blockchainService;
-      console.log('🔧 DEBUG: blockchainService is now available in console');
-      console.log('Use: await window.blockchainService.debugPlatformState()');
     });
   }, []);
 
-  const handleJoinGame = async (gameId: string): Promise<boolean> => {
+  const handleJoinGame = async (gameId: string) => {
+    if (!connected) return;
     const success = await joinGame(gameId);
     if (success) {
       setFlipGameId(gameId);
     }
-    return success;
   };
 
   const handleCoinFlip = async (choice: 'heads' | 'tails') => {
-    if (!flipGameId) return false;
-    
+    if (!flipGameId) return;
     const success = await performCoinFlip(flipGameId, choice);
     if (success) {
       setFlipGameId(null);
-      setActiveTab('finished');
     }
-    return success;
+  };
+
+  const truncateAddress = (address: string) => {
+    return `${address.slice(0, 4)}...${address.slice(-4)}`;
   };
 
   const flipGame = activeGames.find(g => g.id === flipGameId);
 
-  return (
-    <div className="space-y-8">
-      {/* Error Display */}
-      {error && (
-        <ErrorDisplay error={error} onClose={clearError} />
-      )}
+  // Filter finished games based on toggle
+  const filteredFinishedGames = showMyGamesOnly 
+    ? gameState.finishedGames.filter(game => 
+        publicKey && (game.creator === publicKey.toString() || game.player === publicKey.toString())
+      )
+    : gameState.finishedGames;
 
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
       {/* Hero Section */}
-      <div className="text-center py-8">
-        <h2 className="text-4xl font-bold mb-4">
-          Welcome to <span className="text-purple-400">BattleFlip</span>
+      <div style={{ textAlign: 'center', padding: '32px 0' }}>
+        <h2 style={{
+          fontSize: '36px',
+          fontWeight: 'bold',
+          color: 'black',
+          marginBottom: '16px',
+          margin: '0 0 16px 0'
+        }}>
+          BATTLEFLIP
         </h2>
-        <p className="text-xl text-gray-400 mb-6">
-          The ultimate coin-flip gambling experience on Solana
+        <p style={{
+          fontSize: '18px',
+          color: '#6b7280',
+          marginBottom: '24px',
+          margin: '0 0 24px 0'
+        }}>
+          Flip a coin and win SOL! Create a lobby and compete against other players.
         </p>
-        <div className="flex justify-center items-center gap-4 text-sm text-gray-500">
-          <span>1 SOL ≈ {solEurRate.toFixed(0)}€</span>
-          <span>•</span>
-          <span>Min bet: {minBetSol.toFixed(4)} SOL (≈ 0.50€)</span>
+        
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          gap: '16px'
+        }}>
+          <button className="btn-secondary">How to Play</button>
+          <button className="btn-primary">Create Lobby</button>
         </div>
       </div>
 
-      {/* Game Statistics */}
-      <GameStats stats={gameStats} solEurRate={solEurRate} />
+      {/* Error Display */}
+      {error && (
+        <div style={{
+          backgroundColor: '#fef2f2',
+          border: '1px solid #fecaca',
+          borderRadius: '8px',
+          padding: '16px',
+          color: '#dc2626',
+          textAlign: 'center'
+        }}>
+          {error}
+        </div>
+      )}
 
       {/* Connection Status */}
       {!connected ? (
-        <div className="bg-gray-800 rounded-lg p-8 text-center">
-          <h3 className="text-2xl font-bold mb-4 text-purple-400">Connect Wallet to Start</h3>
-          <p className="text-lg mb-6 text-gray-300">Connect your wallet to start playing!</p>
-          <div className="flex justify-center gap-8">
-            <div className="flex items-center gap-3 p-4 bg-gray-700 rounded-lg">
-              <div className="w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center">
-                <span className="text-white font-bold text-sm">P</span>
-              </div>
-              <div>
-                <div className="font-bold">Phantom</div>
-                <div className="text-sm text-gray-400">Recommended</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 p-4 bg-gray-700 rounded-lg">
-              <div className="w-8 h-8 bg-orange-600 rounded-full flex items-center justify-center">
-                <span className="text-white font-bold text-sm">S</span>
-              </div>
-              <div>
-                <div className="font-bold">Solflare</div>
-                <div className="text-sm text-gray-400">Mobile friendly</div>
-              </div>
-            </div>
-          </div>
+        <div style={{
+          backgroundColor: 'white',
+          border: '1px solid #e5e7eb',
+          borderRadius: '8px',
+          padding: '24px',
+          textAlign: 'center',
+          margin: '0 auto',
+          maxWidth: '600px'
+        }}>
+          <h3 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px' }}>
+            Connect Wallet to Start
+          </h3>
+          <p style={{ color: '#6b7280' }}>
+            Connect your wallet to view and join active games!
+          </p>
         </div>
       ) : (
         <>
-          {/* Devnet Helper */}
-          <div className="bg-blue-900/20 rounded-lg p-4 border border-blue-500/30">
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="font-bold text-blue-300">Devnet Testing Mode</h4>
-                <p className="text-sm text-gray-300">
-                  Balance: {walletBalance.toFixed(4)} SOL
-                  {!platformInitialized && " • Platform needs initialization"}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                {!platformInitialized && (
-                  <button
-                    onClick={initializePlatform}
-                    disabled={loading}
-                    className="btn-primary text-sm px-4 py-2"
-                  >
-                    Initialize Platform
-                  </button>
-                )}
-                <button
-                  onClick={() => requestDevnetAirdrop(2)}
-                  disabled={loading}
-                  className="btn-secondary text-sm px-4 py-2"
-                >
-                  Get 2 SOL
-                </button>
-                <button
-                  onClick={refreshData}
-                  disabled={loading}
-                  className="btn-secondary text-sm px-4 py-2"
-                >
-                  Refresh
-                </button>
-              </div>
-            </div>
-          </div>
-
           {/* Coin Flip Modal */}
           {flipGameId && flipGame && (
-            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-              <div className="bg-gray-800 rounded-xl shadow-2xl max-w-md w-full">
-                <div className="p-6">
-                  <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-xl font-bold text-purple-400">Coin Flip Time!</h3>
-                    <button
-                      onClick={() => setFlipGameId(null)}
-                      className="text-gray-400 hover:text-white"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                  
-                  <CoinFlip
-                    onFlip={handleCoinFlip}
-                    loading={loading}
-                    gameId={flipGame.id}
-                    lobbyName={flipGame.lobbyName}
-                    betAmount={flipGame.betAmount}
-                    totalPot={flipGame.betAmount * 2}
-                  />
+            <div style={{
+              position: 'fixed',
+              top: '0',
+              left: '0',
+              right: '0',
+              bottom: '0',
+              backgroundColor: 'rgba(0, 0, 0, 0.5)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: '100'
+            }}>
+              <div style={{
+                backgroundColor: 'white',
+                borderRadius: '12px',
+                padding: '24px',
+                maxWidth: '400px',
+                width: '90%',
+                textAlign: 'center'
+              }}>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '24px'
+                }}>
+                  <h3 style={{ fontSize: '20px', fontWeight: 'bold', margin: '0' }}>
+                    Coin Flip: {flipGame.lobbyName}
+                  </h3>
+                  <button
+                    onClick={() => setFlipGameId(null)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      fontSize: '20px',
+                      cursor: 'pointer',
+                      color: '#6b7280'
+                    }}
+                  >
+                    ✕
+                  </button>
                 </div>
+
+                <div style={{ marginBottom: '24px' }}>
+                  <div style={{
+                    fontSize: '48px',
+                    marginBottom: '16px'
+                  }}>
+                    🪙
+                  </div>
+                  <p style={{ marginBottom: '16px', color: '#6b7280' }}>
+                    Total Pot: {(flipGame.betAmount * 2).toFixed(4)} SOL
+                  </p>
+                  <p style={{ marginBottom: '24px', fontWeight: 'bold' }}>
+                    Choose your side:
+                  </p>
+                </div>
+
+                <div style={{
+                  display: 'flex',
+                  gap: '16px',
+                  justifyContent: 'center',
+                  marginBottom: '24px'
+                }}>
+                  <button
+                    onClick={() => handleCoinFlip('heads')}
+                    disabled={loading}
+                    style={{
+                      padding: '16px 24px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      background: 'white',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      fontWeight: '600'
+                    }}
+                  >
+                    👑 HEADS
+                  </button>
+                  <button
+                    onClick={() => handleCoinFlip('tails')}
+                    disabled={loading}
+                    style={{
+                      padding: '16px 24px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      background: 'white',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      fontWeight: '600'
+                    }}
+                  >
+                    🔥 TAILS
+                  </button>
+                </div>
+
+                {loading && (
+                  <p style={{ color: '#6b7280', fontSize: '14px' }}>
+                    Processing transaction...
+                  </p>
+                )}
               </div>
             </div>
           )}
 
-          {/* Navigation Tabs */}
-          <div className="flex flex-wrap gap-2">
-            {[
-              { key: 'active', label: `Active Games (${activeGames.length})`, icon: '▶' },
-              { key: 'create', label: 'Create Game', icon: '+' },
-              { key: 'finished', label: `Recent Games (${finishedGames.length})`, icon: '◼' }
-            ].map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key as any)}
-                className={`
-                  px-6 py-3 rounded-lg font-medium transition-all
-                  ${activeTab === tab.key
-                    ? 'bg-purple-600 text-white'
-                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                  }
-                `}
-              >
-                <span className="mr-2">{tab.icon}</span>
-                {tab.label}
-              </button>
-            ))}
+          {/* Active Games Card */}
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'center',
+            width: '100%'
+          }}>
+            <div style={{
+              backgroundColor: 'white',
+              border: '1px solid #e5e7eb',
+              borderRadius: '8px',
+              padding: '24px',
+              width: '100%',
+              maxWidth: '800px',
+              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+            }}>
+              {/* Card Header */}
+              <h3 style={{
+                fontSize: '20px',
+                fontWeight: 'bold',
+                color: 'black',
+                marginBottom: '16px',
+                textAlign: 'left'
+              }}>
+                ACTIVE GAMES ({activeGames.length})
+              </h3>
+              
+              {/* Horizontal Line */}
+              <div style={{
+                width: '100%',
+                height: '1px',
+                backgroundColor: '#e5e7eb',
+                marginBottom: '16px'
+              }}></div>
+              
+              {/* Loading State */}
+              {loading && (
+                <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
+                  Loading games...
+                </div>
+              )}
+
+              {/* No Games State */}
+              {!loading && activeGames.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
+                  <p style={{ fontSize: '18px', marginBottom: '8px' }}>No active games</p>
+                  <p style={{ fontSize: '14px' }}>Be the first to create a game!</p>
+                </div>
+              )}
+
+              {/* Games Table */}
+              {!loading && activeGames.length > 0 && (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ 
+                    width: '100%', 
+                    borderCollapse: 'collapse'
+                  }}>
+                    {/* Table Header */}
+                    <thead>
+                      <tr style={{ backgroundColor: '#f9fafb' }}>
+                        <th style={{
+                          padding: '12px 16px',
+                          textAlign: 'left',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          color: '#374151',
+                          borderBottom: '1px solid #e5e7eb'
+                        }}>
+                          Creator
+                        </th>
+                        <th style={{
+                          padding: '12px 16px',
+                          textAlign: 'left',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          color: '#374151',
+                          borderBottom: '1px solid #e5e7eb'
+                        }}>
+                          Lobby Name
+                        </th>
+                        <th style={{
+                          padding: '12px 16px',
+                          textAlign: 'left',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          color: '#374151',
+                          borderBottom: '1px solid #e5e7eb'
+                        }}>
+                          Bet Amount
+                        </th>
+                        <th style={{
+                          padding: '12px 16px',
+                          textAlign: 'center',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          color: '#374151',
+                          borderBottom: '1px solid #e5e7eb'
+                        }}>
+                          Action
+                        </th>
+                      </tr>
+                    </thead>
+                    
+                    {/* Table Body - REAL DATA */}
+                    <tbody>
+                      {activeGames.map((game, index) => {
+                        const isOwnGame = publicKey && game.creator === publicKey.toString();
+                        const canJoin = game.status === 'active';
+                        const isInProgress = game.status === 'in_progress';
+                        
+                        return (
+                          <tr key={game.id}>
+                            <td style={{
+                              padding: '12px 16px',
+                              fontSize: '14px',
+                              color: '#1f2937',
+                              borderBottom: '1px solid #f3f4f6'
+                            }}>
+                              {isOwnGame ? '👤 You' : `🎮 ${truncateAddress(game.creator)}`}
+                            </td>
+                            <td style={{
+                              padding: '12px 16px',
+                              fontSize: '14px',
+                              color: '#1f2937',
+                              borderBottom: '1px solid #f3f4f6'
+                            }}>
+                              {game.lobbyName}
+                            </td>
+                            <td style={{
+                              padding: '12px 16px',
+                              fontSize: '14px',
+                              color: '#059669',
+                              fontWeight: '600',
+                              borderBottom: '1px solid #f3f4f6'
+                            }}>
+                              {game.betAmount.toFixed(4)} SOL
+                            </td>
+                            <td style={{
+                              padding: '12px 16px',
+                              textAlign: 'center',
+                              borderBottom: '1px solid #f3f4f6'
+                            }}>
+                              {isInProgress ? (
+                                <span style={{ 
+                                  fontSize: '12px', 
+                                  color: '#d97706',
+                                  fontWeight: '600'
+                                }}>
+                                  IN PROGRESS
+                                </span>
+                              ) : canJoin ? (
+                                <button
+                                  onClick={() => handleJoinGame(game.id)}
+                                  disabled={loading}
+                                  className="btn-primary"
+                                  style={{
+                                    fontSize: '12px',
+                                    padding: '6px 12px'
+                                  }}
+                                >
+                                  JOIN
+                                </button>
+                              ) : (
+                                <span style={{ 
+                                  fontSize: '12px', 
+                                  color: '#6b7280'
+                                }}>
+                                  FULL
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Tab Content */}
-          <div className="min-h-[400px]">
-            {activeTab === 'create' && (
-              <CreateGame
-                onCreateGame={createGame}
-                minBetSol={minBetSol}
-                solEurRate={solEurRate}
-                loading={loading}
-              />
-            )}
+          {/* Finished Games Card */}
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'center',
+            width: '100%'
+          }}>
+            <div style={{
+              backgroundColor: 'white',
+              border: '1px solid #e5e7eb',
+              borderRadius: '8px',
+              padding: '24px',
+              width: '100%',
+              maxWidth: '800px',
+              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+            }}>
+              {/* Card Header with Filter Button */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '16px'
+              }}>
+                <h3 style={{
+                  fontSize: '20px',
+                  fontWeight: 'bold',
+                  color: 'black',
+                  margin: '0'
+                }}>
+                  FINISHED GAMES ({filteredFinishedGames.length})
+                </h3>
+                
+                <button
+                  onClick={() => setShowMyGamesOnly(!showMyGamesOnly)}
+                  style={{
+                    padding: '8px 16px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    border: showMyGamesOnly ? 'none' : '1px solid #d1d5db',
+                    borderRadius: '6px',
+                    backgroundColor: showMyGamesOnly ? 'black' : 'white',
+                    color: showMyGamesOnly ? 'white' : 'black',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  {showMyGamesOnly ? '✅ My Games Only' : 'Search My Games'}
+                </button>
+              </div>
+              
+              {/* Horizontal Line */}
+              <div style={{
+                width: '100%',
+                height: '1px',
+                backgroundColor: '#e5e7eb',
+                marginBottom: '16px'
+              }}></div>
+              
+              {/* No Finished Games State */}
+              {filteredFinishedGames.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
+                  {showMyGamesOnly ? (
+                    <>
+                      <p style={{ fontSize: '18px', marginBottom: '8px' }}>No games found</p>
+                      <p style={{ fontSize: '14px' }}>You haven't participated in any games yet</p>
+                    </>
+                  ) : (
+                    <>
+                      <p style={{ fontSize: '18px', marginBottom: '8px' }}>No finished games</p>
+                      <p style={{ fontSize: '14px' }}>Completed games will appear here</p>
+                    </>
+                  )}
+                </div>
+              )}
 
-            {activeTab === 'active' && (
-              <ActiveGames
-                games={activeGames}
-                onJoinGame={handleJoinGame}
-                onDeleteGame={deleteGame}
-                loading={loading}
-              />
-            )}
-
-            {activeTab === 'finished' && (
-              <FinishedGames games={finishedGames} />
-            )}
+              {/* Finished Games Table */}
+              {filteredFinishedGames.length > 0 && (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ 
+                    width: '100%', 
+                    borderCollapse: 'collapse'
+                  }}>
+                    {/* Table Header */}
+                    <thead>
+                      <tr style={{ backgroundColor: '#f9fafb' }}>
+                        <th style={{
+                          padding: '12px 16px',
+                          textAlign: 'left',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          color: '#374151',
+                          borderBottom: '1px solid #e5e7eb'
+                        }}>
+                          Creator
+                        </th>
+                        <th style={{
+                          padding: '12px 16px',
+                          textAlign: 'left',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          color: '#374151',
+                          borderBottom: '1px solid #e5e7eb'
+                        }}>
+                          Challenger
+                        </th>
+                        <th style={{
+                          padding: '12px 16px',
+                          textAlign: 'left',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          color: '#374151',
+                          borderBottom: '1px solid #e5e7eb'
+                        }}>
+                          Bet Amount
+                        </th>
+                        <th style={{
+                          padding: '12px 16px',
+                          textAlign: 'center',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          color: '#374151',
+                          borderBottom: '1px solid #e5e7eb'
+                        }}>
+                          Result
+                        </th>
+                      </tr>
+                    </thead>
+                    
+                    {/* Table Body - FILTERED FINISHED GAMES DATA */}
+                    <tbody>
+                      {filteredFinishedGames.map((game, index) => {
+                        const userIsCreator = publicKey && game.creator === publicKey.toString();
+                        const userIsPlayer = publicKey && game.player === publicKey.toString();
+                        const userWon = publicKey && game.winner === publicKey.toString();
+                        const userParticipated = userIsCreator || userIsPlayer;
+                        
+                        return (
+                          <tr key={game.id}>
+                            <td style={{
+                              padding: '12px 16px',
+                              fontSize: '14px',
+                              color: '#1f2937',
+                              borderBottom: '1px solid #f3f4f6'
+                            }}>
+                              {userIsCreator ? '👤 You' : `🎮 ${truncateAddress(game.creator)}`}
+                            </td>
+                            <td style={{
+                              padding: '12px 16px',
+                              fontSize: '14px',
+                              color: '#1f2937',
+                              borderBottom: '1px solid #f3f4f6'
+                            }}>
+                              {userIsPlayer ? '👤 You' : `🎮 ${truncateAddress(game.player)}`}
+                            </td>
+                            <td style={{
+                              padding: '12px 16px',
+                              fontSize: '14px',
+                              color: '#059669',
+                              fontWeight: '600',
+                              borderBottom: '1px solid #f3f4f6'
+                            }}>
+                              {game.betAmount.toFixed(4)} SOL
+                            </td>
+                            <td style={{
+                              padding: '12px 16px',
+                              textAlign: 'center',
+                              borderBottom: '1px solid #f3f4f6'
+                            }}>
+                              {userParticipated ? (
+                                <span style={{
+                                  fontSize: '12px',
+                                  fontWeight: '600',
+                                  color: userWon ? '#059669' : '#dc2626',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: '4px'
+                                }}>
+                                  {userWon ? '🏆 WON' : '💸 LOST'}
+                                </span>
+                              ) : (
+                                <span style={{
+                                  fontSize: '12px',
+                                  color: '#6b7280',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: '4px'
+                                }}>
+                                  {game.result === 'heads' ? '👑' : '🔥'} {game.result.toUpperCase()}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         </>
-      )}
-
-      {/* Platform Information */}
-      <div className="bg-gradient-to-r from-purple-900/30 to-blue-900/30 rounded-xl p-6 border border-purple-500/30">
-        <h3 className="text-xl font-bold mb-4 text-purple-300">How BattleFlip Works</h3>
-        <div className="grid md:grid-cols-2 gap-6 text-sm">
-          <div>
-            <h4 className="font-bold text-white mb-2">For Creators:</h4>
-            <ul className="space-y-1 text-gray-300">
-              <li>• Create a lobby with your bet amount</li>
-              <li>• Wait for someone to join your game</li>
-              <li>• 50/50 chance to win 95% of total pot</li>
-              <li>• Delete anytime for 95% refund</li>
-            </ul>
-          </div>
-          <div>
-            <h4 className="font-bold text-white mb-2">For Players:</h4>
-            <ul className="space-y-1 text-gray-300">
-              <li>• Browse active games and join any</li>
-              <li>• Choose heads or tails for the flip</li>
-              <li>• Win 95% of total pot if you're right</li>
-              <li>• Self-play allowed (join your own games)</li>
-            </ul>
-          </div>
-        </div>
-        
-        <div className="mt-6 pt-4 border-t border-purple-500/30">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-gray-400">
-            <div>
-              <span className="font-bold text-green-400">Winner Payout:</span> 95% of total pot
-            </div>
-            <div>
-              <span className="font-bold text-yellow-400">Platform Fee:</span> 5% of total pot
-            </div>
-            <div>
-              <span className="font-bold text-blue-400">Auto-delete:</span> 24h with 100% refund
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Debug Info (only in development) */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-600">
-          <h4 className="text-sm font-bold text-gray-400 mb-2">🔧 Debug Console</h4>
-          <p className="text-xs text-gray-500">
-            Open browser console and use: <code className="bg-gray-700 px-1 rounded">await window.blockchainService.debugPlatformState()</code>
-          </p>
-        </div>
       )}
     </div>
   );
