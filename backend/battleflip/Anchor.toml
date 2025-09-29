@@ -3,13 +3,13 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-battleflip = "mWishTAXRe8gdGcqF6VqYW3JL1CkHU5waMfkM9VTVmg"
+battleflip = "4CY8DBf7XJ1ffFfV1aNBpgZnGvRuuGDQtJACsgMqWoh8"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "localnet"
+cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]

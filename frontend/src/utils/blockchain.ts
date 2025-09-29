@@ -4,7 +4,7 @@ import type{ WalletContextState } from '@solana/wallet-adapter-react';
 import type { GameLobby, FinishedGame, GameStats } from '../types';
 
 // Program ID from deployment
-export const PROGRAM_ID = new PublicKey('FdMcUSR2SwzBGEGrxMYvRx56iHn3GprjkdLCDzD9engk');
+export const PROGRAM_ID = new PublicKey('4CY8DBf7XJ1ffFfV1aNBpgZnGvRuuGDQtJACsgMqWoh8');
 
 // Fee wallet 
 export const FEE_WALLET = new PublicKey('HQre2z3L5eLdt9MCjLdkdo7pjqozrbD8epqJ6k7RNGxT');

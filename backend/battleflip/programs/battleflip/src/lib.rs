@@ -2,10 +2,10 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::clock::Clock;
 use anchor_lang::system_program;
 
-declare_id!("mWishTAXRe8gdGcqF6VqYW3JL1CkHU5waMfkM9VTVmg");
+declare_id!("4CY8DBf7XJ1ffFfV1aNBpgZnGvRuuGDQtJACsgMqWoh8");
 
 pub const PLATFORM_FEE_PERCENTAGE: u8 = 25; // 2.5% (25/1000)
-pub const POT_PERCENTAGE: u8 = 975; // 97.5% (975/1000)
+pub const POT_PERCENTAGE: u16 = 975; // 97.5% (975/1000)
 pub const MINIMUM_BET_LAMPORTS: u64 = 3_000_000; // ~0.003 SOL
 pub const LOBBY_EXPIRY_TIME: i64 = 86400; // 24 hours in seconds
 
