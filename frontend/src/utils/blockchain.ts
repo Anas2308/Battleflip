@@ -1,4 +1,4 @@
-import { Connection, PublicKey, SystemProgram, LAMPORTS_PER_SOL, clusterApiUrl } from '@solana/web3.js';
+import { Connection, PublicKey, SystemProgram, LAMPORTS_PER_SOL, clusterApiUrl, Transaction, VersionedTransaction } from '@solana/web3.js';
 import { Program, AnchorProvider, BN, setProvider } from '@coral-xyz/anchor';
 import type{ WalletContextState } from '@solana/wallet-adapter-react';
 import type { GameLobby, FinishedGame, GameStats } from '../types';
@@ -33,7 +33,7 @@ export class BlockchainService {
 
     try {
       const { default: IDL } = await import('../idl/battleflip.json');
-      
+
       const provider = new AnchorProvider(
         this.connection,
         wallet as any,
@@ -46,6 +46,79 @@ export class BlockchainService {
     } catch (error) {
       console.error('Error initializing program:', error);
       return null;
+    }
+  }
+
+  /**
+   * Central helper function to sign and send transactions
+   * This works reliably with mobile wallets by explicitly waiting for signatures
+   */
+  private async signAndSendTransaction(
+    transaction: Transaction,
+    wallet: WalletContextState,
+    description: string = 'Transaction'
+  ): Promise<string> {
+    if (!wallet.publicKey || !wallet.signTransaction) {
+      throw new Error('Wallet not connected');
+    }
+
+    try {
+      console.log(`📝 ${description}: Preparing transaction...`);
+
+      // Get latest blockhash
+      const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('confirmed');
+      transaction.recentBlockhash = blockhash;
+      transaction.lastValidBlockHeight = lastValidBlockHeight;
+      transaction.feePayer = wallet.publicKey;
+
+      console.log(`✍️ ${description}: Requesting signature from wallet...`);
+      console.log('⚠️ Please check your wallet app and approve the transaction');
+
+      // CRITICAL: Explicitly wait for wallet to sign the transaction
+      // This is where mobile wallets need time to open and get user approval
+      const signedTransaction = await wallet.signTransaction(transaction);
+
+      console.log(`✅ ${description}: Transaction signed successfully`);
+      console.log(`📤 ${description}: Sending transaction to network...`);
+
+      // Serialize and send the signed transaction
+      const rawTransaction = signedTransaction.serialize();
+      const signature = await this.connection.sendRawTransaction(rawTransaction, {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+        maxRetries: 3,
+      });
+
+      console.log(`⏳ ${description}: Waiting for confirmation...`);
+      console.log(`   Signature: ${signature}`);
+
+      // Wait for confirmation with timeout
+      const confirmation = await this.connection.confirmTransaction({
+        signature,
+        blockhash,
+        lastValidBlockHeight,
+      }, 'confirmed');
+
+      if (confirmation.value.err) {
+        throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+      }
+
+      console.log(`✅ ${description}: Confirmed!`);
+      return signature;
+
+    } catch (error: any) {
+      console.error(`❌ ${description}: Error:`, error);
+
+      // Provide user-friendly error messages
+      if (error.message?.includes('User rejected')) {
+        throw new Error('Transaction was rejected in wallet');
+      } else if (error.message?.includes('insufficient funds')) {
+        throw new Error('Insufficient SOL balance');
+      } else if (error.message?.includes('Timeout')) {
+        throw new Error('Transaction timeout - please try again');
+      }
+
+      throw error;
     }
   }
 
@@ -83,6 +156,7 @@ export class BlockchainService {
   }
 
   // ✅ FIXED: createGame - Only 1 transfer, no fee split
+  // ✅ MOBILE WALLET FIX: Now uses .transaction() + explicit signing
   async createGame(
     wallet: WalletContextState,
     lobbyName: string,
@@ -95,14 +169,14 @@ export class BlockchainService {
 
     try {
       const betAmountLamports = betAmountSol * LAMPORTS_PER_SOL;
-      
+
       console.log('🎮 Creating game:');
       console.log(`  User pays: ${betAmountSol} SOL`);
       console.log(`  (Fee will be deducted when winner claims)`);
-      
+
       const platformData = await program.account.platform.fetch(PLATFORM_PDA);
       const currentTotalGames = platformData.totalGames;
-      
+
       const [gamePDA] = PublicKey.findProgramAddressSync(
         [
           Buffer.from('game'),
@@ -113,19 +187,19 @@ export class BlockchainService {
         ],
         PROGRAM_ID
       );
-      
+
       const existingAccount = await this.connection.getAccountInfo(gamePDA);
       if (existingAccount) {
-        return { 
-          success: false, 
-          error: 'Game with this name already exists. Try a different name.' 
+        return {
+          success: false,
+          error: 'Game with this name already exists. Try a different name.'
         };
       }
-      
+
       const betAmountLamportsBN = new BN(betAmountLamports);
-      
-      // ✅ REMOVED: feeWallet from accounts
-      const tx = await program.methods
+
+      // ✅ CHANGED: Use .transaction() instead of .rpc()
+      const transaction = await program.methods
         .createGame(lobbyName, betAmountLamportsBN)
         .accounts({
           game: gamePDA,
@@ -133,37 +207,39 @@ export class BlockchainService {
           creator: wallet.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .rpc({
-          skipPreflight: false,
-          preflightCommitment: 'confirmed',
-          commitment: 'confirmed',
-        });
+        .transaction();
 
-      console.log('✅ Transaction sent:', tx);
-      await this.connection.confirmTransaction(tx, 'confirmed');
+      // ✅ NEW: Use our helper function to sign and send
+      const signature = await this.signAndSendTransaction(
+        transaction,
+        wallet,
+        'Create Game'
+      );
+
       console.log('✅ Game created successfully!');
-      console.log('  Transaction:', tx);
+      console.log('  Transaction:', signature);
       console.log('  Game PDA:', gamePDA.toString());
-      
+
       return { success: true, gameId: gamePDA.toString() };
 
     } catch (error: any) {
       console.error('❌ Error creating game:', error);
-      
+
       let errorMessage = 'Failed to create game';
-      if (error.message?.includes('User rejected')) {
+      if (error.message?.includes('rejected')) {
         errorMessage = 'Transaction was rejected by user';
       } else if (error.message?.includes('insufficient funds')) {
         errorMessage = 'Insufficient SOL balance';
       } else if (error.message) {
         errorMessage = error.message;
       }
-      
+
       return { success: false, error: errorMessage };
     }
   }
 
   // ✅ FIXED: joinGame - Only 1 transfer, no fee split
+  // ✅ MOBILE WALLET FIX: Now uses .transaction() + explicit signing
   async joinGame(
     wallet: WalletContextState,
     gamePDA: PublicKey
@@ -177,22 +253,29 @@ export class BlockchainService {
       const gameData = await program.account.game.fetch(gamePDA);
       const betAmountLamports = gameData.betAmount.toNumber();
       const betAmountSol = betAmountLamports / LAMPORTS_PER_SOL;
-      
+
       console.log('👤 Joining game:');
       console.log(`  User pays: ${betAmountSol} SOL`);
       console.log(`  (Fee will be deducted when winner claims)`);
 
-      // ✅ REMOVED: platform and feeWallet from accounts
-      const tx = await program.methods
+      // ✅ CHANGED: Use .transaction() instead of .rpc()
+      const transaction = await program.methods
         .joinGame()
         .accounts({
           game: gamePDA,
           player: wallet.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .rpc();
+        .transaction();
 
-      console.log('✅ Joined game! TX:', tx);
+      // ✅ NEW: Use our helper function to sign and send
+      const signature = await this.signAndSendTransaction(
+        transaction,
+        wallet,
+        'Join Game'
+      );
+
+      console.log('✅ Joined game! TX:', signature);
       return { success: true };
     } catch (error: any) {
       console.error('❌ Error joining game:', error);
@@ -200,6 +283,7 @@ export class BlockchainService {
     }
   }
 
+  // ✅ MOBILE WALLET FIX: Now uses .transaction() + explicit signing
   async flipCoin(
     wallet: WalletContextState,
     gamePDA: PublicKey,
@@ -215,16 +299,24 @@ export class BlockchainService {
 
       console.log('🪙 Flipping coin with choice:', choice);
 
-      const tx = await program.methods
+      // ✅ CHANGED: Use .transaction() instead of .rpc()
+      const transaction = await program.methods
         .flipCoin(playerChoice)
         .accounts({
           game: gamePDA,
           platform: PLATFORM_PDA,
           player: wallet.publicKey,
         })
-        .rpc();
+        .transaction();
 
-      console.log('✅ Coin flipped! TX:', tx);
+      // ✅ NEW: Use our helper function to sign and send
+      const signature = await this.signAndSendTransaction(
+        transaction,
+        wallet,
+        'Flip Coin'
+      );
+
+      console.log('✅ Coin flipped! TX:', signature);
       return { success: true };
     } catch (error: any) {
       console.error('❌ Error flipping coin:', error);
@@ -233,6 +325,7 @@ export class BlockchainService {
   }
 
   // ✅ FIXED: claimWinnings - Added platform and feeWallet (fee deducted here)
+  // ✅ MOBILE WALLET FIX: Now uses .transaction() + explicit signing
   async claimWinnings(
     wallet: WalletContextState,
     gamePDA: PublicKey
@@ -245,8 +338,8 @@ export class BlockchainService {
     try {
       console.log('💰 Claiming winnings for game:', gamePDA.toString());
 
-      // ✅ ADDED: platform and feeWallet accounts
-      const tx = await program.methods
+      // ✅ CHANGED: Use .transaction() instead of .rpc()
+      const transaction = await program.methods
         .claimWinnings()
         .accounts({
           game: gamePDA,
@@ -255,9 +348,16 @@ export class BlockchainService {
           feeWallet: FEE_WALLET,
           systemProgram: SystemProgram.programId,
         })
-        .rpc();
+        .transaction();
 
-      console.log('✅ Winnings claimed! TX:', tx);
+      // ✅ NEW: Use our helper function to sign and send
+      const signature = await this.signAndSendTransaction(
+        transaction,
+        wallet,
+        'Claim Winnings'
+      );
+
+      console.log('✅ Winnings claimed! TX:', signature);
       return { success: true };
     } catch (error: any) {
       console.error('❌ Error claiming winnings:', error);
@@ -265,6 +365,7 @@ export class BlockchainService {
     }
   }
 
+  // ✅ MOBILE WALLET FIX: Now uses .transaction() + explicit signing
   async deleteGame(
     wallet: WalletContextState,
     gamePDA: PublicKey
@@ -277,7 +378,8 @@ export class BlockchainService {
     try {
       console.log('🗑️ Deleting game:', gamePDA.toString());
 
-      const tx = await program.methods
+      // ✅ CHANGED: Use .transaction() instead of .rpc()
+      const transaction = await program.methods
         .deleteGame()
         .accounts({
           game: gamePDA,
@@ -285,9 +387,16 @@ export class BlockchainService {
           creator: wallet.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .rpc();
+        .transaction();
 
-      console.log('✅ Game deleted! TX:', tx);
+      // ✅ NEW: Use our helper function to sign and send
+      const signature = await this.signAndSendTransaction(
+        transaction,
+        wallet,
+        'Delete Game'
+      );
+
+      console.log('✅ Game deleted! TX:', signature);
       return { success: true };
     } catch (error: any) {
       console.error('❌ Error deleting game:', error);
