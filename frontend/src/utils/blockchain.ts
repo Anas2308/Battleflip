@@ -58,41 +58,34 @@ export class BlockchainService {
     wallet: WalletContextState,
     description: string = 'Transaction'
   ): Promise<string> {
-    if (!wallet.publicKey || !wallet.signTransaction) {
+    if (!wallet.publicKey || !wallet.sendTransaction) {
       throw new Error('Wallet not connected');
     }
 
     try {
       console.log(`📝 ${description}: Preparing transaction...`);
 
-      // Get latest blockhash
+      // Get latest blockhash and set transaction details
       const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('confirmed');
       transaction.recentBlockhash = blockhash;
-      transaction.lastValidBlockHeight = lastValidBlockHeight;
       transaction.feePayer = wallet.publicKey;
 
       console.log(`✍️ ${description}: Requesting signature from wallet...`);
       console.log('⚠️ Please check your wallet app and approve the transaction');
 
-      // CRITICAL: Explicitly wait for wallet to sign the transaction
-      // This is where mobile wallets need time to open and get user approval
-      const signedTransaction = await wallet.signTransaction(transaction);
-
-      console.log(`✅ ${description}: Transaction signed successfully`);
-      console.log(`📤 ${description}: Sending transaction to network...`);
-
-      // Serialize and send the signed transaction
-      const rawTransaction = signedTransaction.serialize();
-      const signature = await this.connection.sendRawTransaction(rawTransaction, {
+      // ✅ Use wallet.sendTransaction - this handles signing AND sending
+      // This is the recommended approach for mobile wallets
+      const signature = await wallet.sendTransaction(transaction, this.connection, {
         skipPreflight: false,
         preflightCommitment: 'confirmed',
         maxRetries: 3,
       });
 
+      console.log(`✅ ${description}: Transaction sent!`);
       console.log(`⏳ ${description}: Waiting for confirmation...`);
       console.log(`   Signature: ${signature}`);
 
-      // Wait for confirmation with timeout
+      // Wait for confirmation
       const confirmation = await this.connection.confirmTransaction({
         signature,
         blockhash,
